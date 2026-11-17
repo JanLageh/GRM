@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "GRM-Solar Panel and Battery Trading",
-    "slug": "grm-solar-trading",
+    "name": "Garrys Smartlock and Solar IMS",
+    "slug": "garrys-smartlock-solar-ims",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "grm-solar",
+    "scheme": "garrys-ims",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
@@ -27,4 +27,5 @@
     }
   }
 }
+
 
