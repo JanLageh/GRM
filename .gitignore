@@ -42,3 +42,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# .NET / ASP.NET Core (GRM-Backend)
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+
+
