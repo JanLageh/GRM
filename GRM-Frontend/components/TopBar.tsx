@@ -12,17 +12,17 @@ const NAV: Record<Role, [string, string][]> = {
   Admin: [['Dashboard', '/admin'], ['Products', '/admin/catalog'], ['Pricing', '/admin/pricing'], ['Purchasing', '/admin/purchasing'], ['Inventory & Invoices', '/admin/inventory'], ['People', '/admin/people'], ['Reports', '/admin/reports'], ['POS', '/staff/pos'], ['Quotations', '/staff/quotations'], ['Orders', '/staff/orders']],
 };
 const HOME: Record<Role, string> = { Guest: '/', Customer: '/', Staff: '/staff', Admin: '/admin' };
-const ROLES: { r: Role; label: string }[] = [{ r: 'Guest', label: 'Guest' }, { r: 'Customer', label: 'Customer' }, { r: 'Staff', label: 'Staff' }, { r: 'Admin', label: 'Admin/Owner' }];
+// const ROLES: { r: Role; label: string }[] = [{ r: 'Guest', label: 'Guest' }, { r: 'Customer', label: 'Customer' }, { r: 'Staff', label: 'Staff' }, { r: 'Admin', label: 'Admin/Owner' }];
 
 export default function TopBar() {
-  const { role, user, cart, notice, switchRole, logout, apiOnline, syncWithBackend, flash } = useSystem();
+  const { role, user, cart, notice, logout, apiOnline, syncWithBackend, flash } = useSystem();
   const router = useRouter();
   const path = usePathname();
   const wide = useWide();
   const count = cart.reduce((a, i) => a + i.qty, 0);
 
   const go = (p: string) => router.push(p as any);
-  const pick = (r: Role) => { switchRole(r); router.replace(HOME[r] as any); };
+  // const pick = (r: Role) => { (r); router.replace(HOME[r] as any); };
 
   return (
     <View {...noPrint} style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.line, zIndex: 20 }}>
@@ -35,13 +35,13 @@ export default function TopBar() {
           </View>
         </Pressable>
 
-        <View testID="role-switcher" style={{ flexDirection: 'row', backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, borderRadius: 999, padding: 3 }}>
+        {/* <View testID="role-switcher" style={{ flexDirection: 'row', backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, borderRadius: 999, padding: 3 }}>
           {ROLES.map(({ r, label }) => (
             <Pressable key={r} testID={`role-${r}`} accessibilityRole="button" onPress={() => pick(r)} style={{ paddingHorizontal: wide ? 14 : 9, paddingVertical: 6, borderRadius: 999, backgroundColor: role === r ? C.ink : 'transparent' }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: role === r ? '#fff' : C.mute }}>{label}</Text>
             </Pressable>
           ))}
-        </View>
+        </View> */}
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {/* Live GRM-Backend API Status Pill */}

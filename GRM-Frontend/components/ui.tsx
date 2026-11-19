@@ -53,8 +53,8 @@ export function Badge({ text, tone = 'neutral' }: { text: string; tone?: keyof t
 }
 export const statusTone = (s: string): keyof typeof tones =>
   ['Paid', 'Completed', 'Accepted', 'Received', 'Approved', 'Quoted'].includes(s) ? 'ok'
-  : ['Voided', 'Cancelled', 'Declined', 'Expired'].includes(s) ? 'err'
-  : ['Unpaid', 'Pending', 'Requested', 'Draft', 'Processing', 'Sent'].includes(s) ? 'warn' : 'neutral';
+    : ['Voided', 'Cancelled', 'Declined', 'Expired'].includes(s) ? 'err'
+      : ['Unpaid', 'Pending', 'Requested', 'Draft', 'Processing', 'Sent'].includes(s) ? 'warn' : 'neutral';
 export const StatusBadge = ({ s }: { s: string }) => <Badge text={s} tone={statusTone(s)} />;
 
 export function Field({ label, ...p }: { label?: string } & TextInputProps) {
