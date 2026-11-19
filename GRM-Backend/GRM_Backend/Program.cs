@@ -10,9 +10,9 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add Database Context (In-Memory Database for reliable operation and testing)
+// Add Database Context (PostgreSQL)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseInMemoryDatabase("GRM_Backend_Db"));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Add Services
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
@@ -122,10 +122,11 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// Seed a default admin account (change the password in production)
+// Ensure database schema is migrated and seed default accounts
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
     if (!db.Users.Any(u => u.Role == "Admin"))
     {
