@@ -209,17 +209,17 @@ export const peso = (n: number) =>
 export const fmtDate = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleDateString('en-PH', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
     : '—';
 export const fmtDT = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleString('en-PH', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      })
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    })
     : '—';
 const LEAD_DAYS = 7;
 const SAFETY = 2;
@@ -239,12 +239,12 @@ export const bundleAvailable = (d: DB, b: Bundle) =>
   b.components.length === 0
     ? 0
     : Math.min(
-        ...b.components.map((c) =>
-          Math.floor(
-            (d.variants.find((v) => v.id === c.variantId)?.stock ?? 0) / c.qty
-          )
+      ...b.components.map((c) =>
+        Math.floor(
+          (d.variants.find((v) => v.id === c.variantId)?.stock ?? 0) / c.qty
         )
-      );
+      )
+    );
 export const isExpired = (q: Quotation) =>
   q.status === 'Quoted' &&
   !!q.validUntil &&
@@ -632,7 +632,7 @@ function load(): DB {
         if (d.v === 1) return d;
       }
     }
-  } catch {}
+  } catch { }
   return seed();
 }
 
@@ -660,7 +660,7 @@ export interface Ctx {
   login: (email: string, pw: string) => Res;
   register: (p: { name: string; email: string; password: string; phone: string }) => Res;
   logout: () => void;
-  switchRole: (r: Role) => void;
+  // switchRole: (r: Role) => void;
   updateProfile: (p: { name: string; phone: string; address: string }) => Res;
   changePassword: (cur: string, next: string) => Res;
   addToCart: (kind: 'variant' | 'bundle', refId: string, qty?: number) => Res;
@@ -757,7 +757,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     try {
       if (typeof localStorage !== 'undefined')
         localStorage.setItem(KEY, JSON.stringify(d));
-    } catch {}
+    } catch { }
   }, []);
 
   const tx = <T,>(fn: (d: DB) => T): Res<T> => {
@@ -946,7 +946,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
           }
         }
         await syncWithBackend();
-      } catch {}
+      } catch { }
     },
     [getStaffOrAdminBackendToken, syncWithBackend]
   );
@@ -1041,34 +1041,34 @@ export function SystemProvider({ children }: { children: ReactNode }) {
             setApiToken(authRes.token);
             setApiOnline(true);
           })
-          .catch(() => {});
+          .catch(() => { });
       }
       return res;
     },
 
     logout: () => {
-      grmApi.auth.logout().catch(() => {});
+      grmApi.auth.logout().catch(() => { });
       setApiToken(null);
       tx((d) => {
         d.session = { userId: null, token: null };
       });
     },
 
-    switchRole: (r) => {
-      tx((d) => {
-        if (r === 'Guest') {
-          d.session = { userId: null, token: null };
-          setApiToken(null);
-          return;
-        }
-        const u = d.users.find((x) => x.role === r && x.active);
-        if (!u) throw new Error(`No active ${r} account`);
-        makeSession(d, u);
-      });
-      if (r !== 'Guest') {
-        authenticateBackendRole(r).then(() => syncWithBackend());
-      }
-    },
+    // switchRole: (r) => {
+    //   tx((d) => {
+    //     if (r === 'Guest') {
+    //       d.session = { userId: null, token: null };
+    //       setApiToken(null);
+    //       return;
+    //     }
+    //     const u = d.users.find((x) => x.role === r && x.active);
+    //     if (!u) throw new Error(`No active ${r} account`);
+    //     makeSession(d, u);
+    //   });
+    //   if (r !== 'Guest') {
+    //     authenticateBackendRole(r).then(() => syncWithBackend());
+    //   }
+    // },
 
     updateProfile: (p) => {
       const res = tx((d) => {
@@ -1085,7 +1085,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
             phoneNumber: p.phone,
             address: p.address,
           })
-          .catch(() => {});
+          .catch(() => { });
       }
       return res;
     },
@@ -1110,7 +1110,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         return d.variants.find((v) => v.id === refId)?.backendId;
       });
       if (res.ok && kind === 'variant' && res.data && roleOf(ref.current) === 'Customer') {
-        grmApi.cart.addItem(res.data, qty).catch(() => {});
+        grmApi.cart.addItem(res.data, qty).catch(() => { });
       }
       return res;
     },
@@ -1124,8 +1124,8 @@ export function SystemProvider({ children }: { children: ReactNode }) {
           .filter((i) => i.qty > 0);
       });
       if (kind === 'variant' && bId && roleOf(ref.current) === 'Customer') {
-        if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => {});
-        else grmApi.cart.removeItem(bId).catch(() => {});
+        if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
+        else grmApi.cart.removeItem(bId).catch(() => { });
       }
     },
 
@@ -1134,7 +1134,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         d.carts[cartKey(d)] = [];
       });
       if (roleOf(ref.current) === 'Customer') {
-        grmApi.cart.clear().catch(() => {});
+        grmApi.cart.clear().catch(() => { });
       }
     },
 
@@ -1181,7 +1181,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
               if (target) target.backendId = apiQ.id;
             });
           })
-          .catch(() => {});
+          .catch(() => { });
       }
       return res;
     },
@@ -1290,7 +1290,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         q.status = 'Declined';
       });
       if (res.ok && bId) {
-        grmApi.quotations.decline(bId, 'Declined by customer').catch(() => {});
+        grmApi.quotations.decline(bId, 'Declined by customer').catch(() => { });
       }
       return res;
     },
@@ -1343,7 +1343,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
             notes: p.note,
           })
           .then(() => grmApi.quotations.send(bId))
-          .catch(() => {});
+          .catch(() => { });
       }
       return res;
     },
@@ -1496,12 +1496,12 @@ export function SystemProvider({ children }: { children: ReactNode }) {
           grmApi.inventory
             .stockIn(bId, p.qty, p.reason)
             .then(() => syncWithBackend())
-            .catch(() => {});
+            .catch(() => { });
         } else {
           grmApi.inventory
             .stockOut(bId, p.qty, p.reason)
             .then(() => syncWithBackend())
-            .catch(() => {});
+            .catch(() => { });
         }
       }
       return res;
@@ -1535,7 +1535,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         grmApi.inventory
           .adjust(bId, p.newCount, p.reason)
           .then(() => syncWithBackend())
-          .catch(() => {});
+          .catch(() => { });
       }
       return res;
     },
@@ -1710,7 +1710,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
               category: res.data.category,
               isActive: res.data.active,
             })
-            .catch(() => {});
+            .catch(() => { });
         } else {
           grmApi.products
             .create({
@@ -1720,7 +1720,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
               isActive: res.data.active,
             })
             .then(() => syncWithBackend())
-            .catch(() => {});
+            .catch(() => { });
         }
       }
       return res;
@@ -1771,7 +1771,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
               price: res.data.price,
               stock: res.data.stock,
             })
-            .catch(() => {});
+            .catch(() => { });
         } else if (prodBackendId) {
           grmApi.products
             .addVariant(prodBackendId, {
@@ -1781,7 +1781,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
               stock: res.data.stock,
             })
             .then(() => syncWithBackend())
-            .catch(() => {});
+            .catch(() => { });
         }
       }
       return res;
@@ -1832,7 +1832,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
                 price: res.data.price,
                 items,
               })
-              .catch(() => {});
+              .catch(() => { });
           } else {
             grmApi.bundles
               .create({
@@ -1842,7 +1842,7 @@ export function SystemProvider({ children }: { children: ReactNode }) {
                 items,
               })
               .then(() => syncWithBackend())
-              .catch(() => {});
+              .catch(() => { });
           }
         }
       }
