@@ -126,7 +126,14 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    if (db.Database.IsRelational())
+    {
+        db.Database.Migrate();
+    }
+    else
+    {
+        db.Database.EnsureCreated();
+    }
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
     if (!db.Users.Any(u => u.Role == "Admin"))
     {
