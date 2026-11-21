@@ -21,6 +21,8 @@ public class AppDbContext : DbContext
     public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
     public DbSet<SalesOrderItem> SalesOrderItems => Set<SalesOrderItem>();
     public DbSet<OrderCorrection> OrderCorrections => Set<OrderCorrection>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -122,5 +124,47 @@ public class AppDbContext : DbContext
             .Property(c => c.PreviousTotal).HasPrecision(18, 2);
         modelBuilder.Entity<OrderCorrection>()
             .Property(c => c.NewTotal).HasPrecision(18, 2);
+
+        // Invoice
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Order).WithMany().HasForeignKey(i => i.OrderId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.IssuedBy).WithMany().HasForeignKey(i => i.IssuedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.VoidedBy).WithMany().HasForeignKey(i => i.VoidedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.Subtotal).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.TotalAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.AmountPaid).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.InvoiceNumber).IsUnique();
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.OrderId); // non-unique: allows reissue after void
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.CustomerId);
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.PaymentStatus);
+        modelBuilder.Entity<Invoice>()
+            .HasMany(i => i.Items).WithOne(it => it.Invoice).HasForeignKey(it => it.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // InvoiceItem
+        modelBuilder.Entity<InvoiceItem>()
+            .HasOne(it => it.Variant).WithMany().HasForeignKey(it => it.VariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<InvoiceItem>()
+            .Property(it => it.UnitPrice).HasPrecision(18, 2);
     }
 }

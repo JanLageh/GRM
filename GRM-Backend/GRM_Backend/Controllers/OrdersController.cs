@@ -489,6 +489,17 @@ public class OrdersController : ControllerBase
                 });
         }
 
+        var activeInvoice = await _context.Invoices
+            .FirstOrDefaultAsync(i => i.OrderId == id && !i.IsVoided);
+        if (activeInvoice != null &&
+            activeInvoice.PaymentStatus is InvoiceStatus.Paid or InvoiceStatus.PartiallyPaid)
+        {
+            return BadRequest(new MessageResponse
+            {
+                Message = "Cannot cancel an order with a Paid or Partially Paid invoice. An Admin must void the invoice first."
+            });
+        }
+
         await using var tx = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync()
             : null;
@@ -513,6 +524,16 @@ public class OrdersController : ControllerBase
         }
 
         var now = DateTime.UtcNow;
+        if (activeInvoice != null)
+        {
+            activeInvoice.IsVoided = true;
+            activeInvoice.PaymentStatus = InvoiceStatus.Voided;
+            activeInvoice.VoidedAt = now;
+            activeInvoice.VoidedByUserId = CurrentUserId;
+            activeInvoice.VoidReason = "Order cancelled";
+            activeInvoice.UpdatedAt = now;
+        }
+
         order.Status = OrderStatus.Cancelled;
         order.CancelledAt = now;
         order.CancelReason = request?.Reason?.Trim();
