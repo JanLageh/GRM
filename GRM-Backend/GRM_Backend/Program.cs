@@ -18,6 +18,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddScoped<IReorderService, ReorderService>();
 
 // Add JWT Authentication
 var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForJwtTokenGenerationAndValidationInDevelopmentAndProduction123456!";
@@ -184,6 +185,27 @@ using (var scope = app.Services.CreateScope())
                 Items = { new BundleItem { VariantId = Id("SP-M-04"), Quantity = 1 }, new BundleItem { VariantId = Id("BT-10"), Quantity = 1 } } },
             new Bundle { Name = "Large Solar + Battery Kit", Description = "7 kW panel set with two 10 kWh batteries.", Price = 225000,
                 Items = { new BundleItem { VariantId = Id("SP-L-07"), Quantity = 1 }, new BundleItem { VariantId = Id("BT-10"), Quantity = 2 } } });
+        db.SaveChanges();
+    }
+    if (!db.Suppliers.Any())
+    {
+        db.Suppliers.AddRange(
+            new Supplier
+            {
+                Name = "SunBridge Solar Supply (Cebu)",
+                ContactPerson = "Ramon Uy",
+                Phone = "032 255 0101",
+                Email = "orders@sunbridgesolar.ph",
+                Address = "Mandaue City, Cebu"
+            },
+            new Supplier
+            {
+                Name = "SecureHome Distributors",
+                ContactPerson = "Ana Reyes",
+                Phone = "032 255 0202",
+                Email = "supply@securehome.ph",
+                Address = "Cebu City"
+            });
         db.SaveChanges();
     }
 }

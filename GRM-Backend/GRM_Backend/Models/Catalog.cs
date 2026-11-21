@@ -22,6 +22,12 @@ public class ProductVariant
     public decimal Price { get; set; }
     public int Stock { get; set; }
     public int ReorderThreshold { get; set; } = 5;
+    public int? DefaultReorderQuantity { get; set; }
+    public int LeadTimeDays { get; set; } = 7;
+    public int SafetyStock { get; set; } = 2;
+    public bool UseDynamicThreshold { get; set; } = true;
+    public decimal SalesVelocity { get; set; } = 0m;
+    public DateTime? LastReorderCalculatedAt { get; set; }
 }
 
 public class StockMovement
