@@ -336,28 +336,57 @@ public class QuotationsController : ControllerBase
         if (alreadyConverted)
             return Conflict(new MessageResponse { Message = "This quotation has already been converted to a sales order." });
 
+        // Validate variant existence & stock for all quoted items before mutating state
+        foreach (var group in quotation.Items.GroupBy(i => i.VariantId))
+        {
+            var variant = group.First().Variant;
+            var requiredQty = group.Sum(i => i.Quantity);
+            if (variant == null)
+                return BadRequest(new MessageResponse { Message = $"Variant {group.Key} not found." });
+            if (variant.Stock < requiredQty)
+                return BadRequest(new MessageResponse
+                {
+                    Message = $"Insufficient stock for SKU '{variant.Sku}'. Available: {variant.Stock}, required: {requiredQty}."
+                });
+        }
+
         var order = new SalesOrder
         {
-            QuotationId = quotation.Id,
-            CustomerId  = quotation.CustomerId,
-            Total       = quotation.Total
+            QuotationId     = quotation.Id,
+            CustomerId      = quotation.CustomerId,
+            CustomerName    = !string.IsNullOrWhiteSpace(quotation.Customer?.FullName)
+                ? quotation.Customer.FullName
+                : (quotation.Customer?.Username ?? string.Empty),
+            StaffId         = CurrentUserId,
+            Channel         = OrderChannel.Online,
+            Status          = OrderStatus.Pending,
+            PaymentMethod   = "Cash on Delivery",
+            ShippingAddress = quotation.Customer?.Address,
+            Notes           = quotation.Notes,
+            DiscountPercent = quotation.DiscountPercent,
+            Subtotal        = quotation.Subtotal,
+            DiscountAmount  = quotation.DiscountAmount,
+            Total           = quotation.Total,
+            Items = quotation.Items.Select(i => new SalesOrderItem
+            {
+                VariantId = i.VariantId,
+                Quantity  = i.Quantity,
+                UnitPrice = i.UnitPrice
+            }).ToList()
         };
 
         foreach (var item in quotation.Items)
         {
-            if (item.Variant != null && item.Variant.Stock >= item.Quantity)
+            item.Variant!.Stock -= item.Quantity;
+            _context.StockMovements.Add(new StockMovement
             {
-                item.Variant.Stock -= item.Quantity;
-                _context.StockMovements.Add(new StockMovement
-                {
-                    VariantId      = item.VariantId,
-                    Type           = "StockOut",
-                    QuantityChange = -item.Quantity,
-                    StockAfter     = item.Variant.Stock,
-                    Reason         = $"Quotation #{quotation.Id} converted to SalesOrder",
-                    UserId         = CurrentUserId
-                });
-            }
+                VariantId      = item.VariantId,
+                Type           = "StockOut",
+                QuantityChange = -item.Quantity,
+                StockAfter     = item.Variant.Stock,
+                Reason         = $"Quotation #{quotation.Id} converted to SalesOrder",
+                UserId         = CurrentUserId
+            });
         }
 
         quotation.Status    = QuotationStatus.Converted;
@@ -372,8 +401,8 @@ public class QuotationsController : ControllerBase
         return Ok(new SalesOrderDto
         {
             Id           = order.Id,
-            QuotationId  = order.QuotationId,
-            CustomerId   = order.CustomerId,
+            QuotationId  = order.QuotationId!.Value,
+            CustomerId   = order.CustomerId!.Value,
             CustomerName = order.Customer?.FullName ?? order.Customer?.Username ?? string.Empty,
             Total        = order.Total,
             CreatedAt    = order.CreatedAt
