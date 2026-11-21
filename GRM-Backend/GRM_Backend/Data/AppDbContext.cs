@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
+    public DbSet<ContactInquiry> ContactInquiries => Set<ContactInquiry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -220,5 +221,9 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<PurchaseOrderItem>()
             .Property(i => i.UnitCost).HasPrecision(18, 2);
+
+        // ContactInquiry
+        modelBuilder.Entity<ContactInquiry>()
+            .HasIndex(c => c.CreatedAt);
     }
 }
