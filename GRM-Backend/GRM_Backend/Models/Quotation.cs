@@ -62,15 +62,3 @@ public class QuotationItem
 
     public decimal LineTotal => UnitPrice * Quantity;
 }
-
-/// <summary>Lightweight sales order created when a quote is converted.</summary>
-public class SalesOrder
-{
-    public int Id { get; set; }
-    public int QuotationId { get; set; }
-    public Quotation? Quotation { get; set; }
-    public int CustomerId { get; set; }
-    public User? Customer { get; set; }
-    public decimal Total { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-}

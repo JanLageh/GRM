@@ -19,6 +19,10 @@ public class AppDbContext : DbContext
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<QuotationItem> QuotationItems => Set<QuotationItem>();
     public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
+    public DbSet<SalesOrderItem> SalesOrderItems => Set<SalesOrderItem>();
+    public DbSet<OrderCorrection> OrderCorrections => Set<OrderCorrection>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,8 +83,88 @@ public class AppDbContext : DbContext
             .HasOne(o => o.Customer).WithMany().HasForeignKey(o => o.CustomerId)
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SalesOrder>()
+            .HasOne(o => o.Staff).WithMany().HasForeignKey(o => o.StaffId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<SalesOrder>()
+            .HasOne(o => o.CorrectedBy).WithMany().HasForeignKey(o => o.CorrectedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<SalesOrder>()
+            .Property(o => o.DiscountPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<SalesOrder>()
+            .Property(o => o.Subtotal).HasPrecision(18, 2);
+        modelBuilder.Entity<SalesOrder>()
+            .Property(o => o.DiscountAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<SalesOrder>()
             .Property(o => o.Total).HasPrecision(18, 2);
         modelBuilder.Entity<SalesOrder>()
             .HasIndex(o => o.QuotationId).IsUnique(); // one order per quote
+        modelBuilder.Entity<SalesOrder>()
+            .HasIndex(o => o.Status);
+        modelBuilder.Entity<SalesOrder>()
+            .HasIndex(o => o.Channel);
+        modelBuilder.Entity<SalesOrder>()
+            .HasMany(o => o.Items).WithOne(i => i.SalesOrder).HasForeignKey(i => i.SalesOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SalesOrder>()
+            .HasMany(o => o.Corrections).WithOne(c => c.SalesOrder).HasForeignKey(c => c.SalesOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // SalesOrderItem
+        modelBuilder.Entity<SalesOrderItem>()
+            .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SalesOrderItem>()
+            .Property(i => i.UnitPrice).HasPrecision(18, 2);
+
+        // OrderCorrection
+        modelBuilder.Entity<OrderCorrection>()
+            .HasOne(c => c.CorrectedBy).WithMany().HasForeignKey(c => c.CorrectedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<OrderCorrection>()
+            .Property(c => c.PreviousTotal).HasPrecision(18, 2);
+        modelBuilder.Entity<OrderCorrection>()
+            .Property(c => c.NewTotal).HasPrecision(18, 2);
+
+        // Invoice
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Order).WithMany().HasForeignKey(i => i.OrderId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.Customer).WithMany().HasForeignKey(i => i.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.IssuedBy).WithMany().HasForeignKey(i => i.IssuedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Invoice>()
+            .HasOne(i => i.VoidedBy).WithMany().HasForeignKey(i => i.VoidedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.Subtotal).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.TotalAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.AmountPaid).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.InvoiceNumber).IsUnique();
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.OrderId); // non-unique: allows reissue after void
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.CustomerId);
+        modelBuilder.Entity<Invoice>()
+            .HasIndex(i => i.PaymentStatus);
+        modelBuilder.Entity<Invoice>()
+            .HasMany(i => i.Items).WithOne(it => it.Invoice).HasForeignKey(it => it.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // InvoiceItem
+        modelBuilder.Entity<InvoiceItem>()
+            .HasOne(it => it.Variant).WithMany().HasForeignKey(it => it.VariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<InvoiceItem>()
+            .Property(it => it.UnitPrice).HasPrecision(18, 2);
     }
 }
