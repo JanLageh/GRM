@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using GRM_Backend.Data;
 using GRM_Backend.Models;
@@ -60,7 +61,7 @@ builder.Services.AddAuthentication(options =>
             }
             return Task.CompletedTask;
         },
-        OnTokenValidated = context =>
+        OnTokenValidated = async context =>
         {
             var blacklistService = context.HttpContext.RequestServices.GetRequiredService<ITokenBlacklistService>();
             var token = (context.SecurityToken as Microsoft.IdentityModel.JsonWebTokens.JsonWebToken)?.EncodedToken
@@ -68,8 +69,23 @@ builder.Services.AddAuthentication(options =>
             if (token != null && blacklistService.IsTokenBlacklisted(token))
             {
                 context.Fail("This token has been revoked.");
+                return;
             }
-            return Task.CompletedTask;
+
+            var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdClaim, out var userId))
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userStatus = await db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.IsActive })
+                    .FirstOrDefaultAsync();
+                if (userStatus == null || !userStatus.IsActive)
+                {
+                    context.Fail("This account has been deactivated.");
+                }
+            }
         }
     };
 });
