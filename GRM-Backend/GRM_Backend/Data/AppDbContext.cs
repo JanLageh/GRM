@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<BundleItem> BundleItems => Set<BundleItem>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<CartBundleItem> CartBundleItems => Set<CartBundleItem>();
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<QuotationItem> QuotationItems => Set<QuotationItem>();
     public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
@@ -28,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
     public DbSet<ContactInquiry> ContactInquiries => Set<ContactInquiry>();
+    public DbSet<BusinessSettings> BusinessSettings => Set<BusinessSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,6 +55,10 @@ public class AppDbContext : DbContext
             .HasOne(c => c.Variant).WithMany().HasForeignKey(c => c.VariantId)
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<CartItem>().HasIndex(c => new { c.UserId, c.VariantId }).IsUnique();
+        modelBuilder.Entity<CartBundleItem>()
+            .HasOne(c => c.Bundle).WithMany().HasForeignKey(c => c.BundleId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<CartBundleItem>().HasIndex(c => new { c.UserId, c.BundleId }).IsUnique();
         modelBuilder.Entity<Bundle>().Property(b => b.Price).HasPrecision(18, 2);
         modelBuilder.Entity<Bundle>()
             .HasMany(b => b.Items).WithOne().HasForeignKey(i => i.BundleId)
@@ -78,6 +84,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<QuotationItem>()
             .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
             .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<QuotationItem>()
+            .HasOne(i => i.Bundle).WithMany().HasForeignKey(i => i.BundleId)
+            .OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<QuotationItem>()
             .Property(i => i.UnitPrice).HasPrecision(18, 2);
 
@@ -119,6 +128,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SalesOrderItem>()
             .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
             .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SalesOrderItem>()
+            .HasOne(i => i.Bundle).WithMany().HasForeignKey(i => i.BundleId)
+            .OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<SalesOrderItem>()
             .Property(i => i.UnitPrice).HasPrecision(18, 2);
 
@@ -225,5 +237,13 @@ public class AppDbContext : DbContext
         // ContactInquiry
         modelBuilder.Entity<ContactInquiry>()
             .HasIndex(c => c.CreatedAt);
+
+        // BusinessSettings
+        modelBuilder.Entity<BusinessSettings>(entity =>
+        {
+            entity.Property(s => s.MaxStaffDiscountPercent).HasPrecision(5, 2);
+            entity.HasOne(s => s.UpdatedBy).WithMany().HasForeignKey(s => s.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
     }
 }

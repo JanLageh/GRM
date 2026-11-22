@@ -500,7 +500,8 @@ public class ReportsController : ControllerBase
 
         var draftCount = quotes.Count(q => q.Status == QuotationStatus.Draft);
         var sentQuotes = quotes.Where(q => q.Status != QuotationStatus.Draft).ToList();
-        var awaitingCount = sentQuotes.Count(q => q.Status == QuotationStatus.Sent);
+        var expiredCount = sentQuotes.Count(q => q.IsExpired);
+        var awaitingCount = sentQuotes.Count(q => q.Status == QuotationStatus.Sent && !q.IsExpired);
         var acceptedQuotes = sentQuotes.Where(q => q.Status is QuotationStatus.Accepted or QuotationStatus.Converted).ToList();
         var convertedQuotes = sentQuotes.Where(q => q.Status == QuotationStatus.Converted).ToList();
         var declinedQuotes = sentQuotes.Where(q => q.Status == QuotationStatus.Declined).ToList();
@@ -522,6 +523,7 @@ public class ReportsController : ControllerBase
             DraftCount = draftCount,
             SentCount = sentCount,
             AwaitingResponseCount = awaitingCount,
+            ExpiredCount = expiredCount,
             AcceptedCount = acceptedCount,
             ConvertedCount = convertedCount,
             DeclinedCount = declinedQuotes.Count,

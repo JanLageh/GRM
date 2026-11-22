@@ -1,10 +1,13 @@
+using System.Net;
 using System.Security.Claims;
 using System.Text;
 using GRM_Backend.Data;
 using GRM_Backend.DTOs;
 using GRM_Backend.Models;
+using GRM_Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 
 namespace GRM_Backend.Controllers;
@@ -14,9 +17,6 @@ namespace GRM_Backend.Controllers;
 [Authorize]
 public class QuotationsController : ControllerBase
 {
-    // Maximum discount Staff members are allowed to grant.
-    private const decimal StaffMaxDiscount = 15m;
-
     private readonly AppDbContext _context;
 
     public QuotationsController(AppDbContext context)
@@ -32,7 +32,20 @@ public class QuotationsController : ControllerBase
     private string CurrentRole =>
         User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
 
-    private bool IsStaffOrAdmin => CurrentRole is "Staff" or "Admin";
+    private async Task<decimal> GetMaxStaffDiscountAsync() =>
+        await _context.BusinessSettings.AsNoTracking()
+            .Select(s => (decimal?)s.MaxStaffDiscountPercent)
+            .FirstOrDefaultAsync() ?? 15m;
+
+    private async Task<int> GetDefaultValidityDaysAsync() =>
+        await _context.BusinessSettings.AsNoTracking()
+            .Select(s => (int?)s.DefaultQuotationValidityDays)
+            .FirstOrDefaultAsync() ?? 7;
+
+    private static DateTime NormalizeUtc(DateTime dt) =>
+        dt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+            : dt.ToUniversalTime();
 
     /// <summary>Projects a Quotation entity to its DTO (items must be loaded).</summary>
     private static QuotationDto ToDto(Quotation q) => new()
@@ -51,12 +64,16 @@ public class QuotationsController : ControllerBase
         CreatedAt      = q.CreatedAt,
         UpdatedAt      = q.UpdatedAt,
         SentAt         = q.SentAt,
+        ExpiresAt      = q.ExpiresAt,
+        IsExpired      = q.IsExpired,
         RespondedAt    = q.RespondedAt,
         DeclineReason  = q.DeclineReason,
         Items = q.Items.Select(i => new QuotationItemDto
         {
             Id          = i.Id,
             VariantId   = i.VariantId,
+            BundleId    = i.BundleId,
+            BundleName  = i.BundleName,
             Sku         = i.Variant?.Sku ?? string.Empty,
             ProductName = i.Variant?.Product?.Name ?? string.Empty,
             Model       = i.Variant?.Model ?? string.Empty,
@@ -74,12 +91,22 @@ public class QuotationsController : ControllerBase
             .Include(q => q.Items).ThenInclude(i => i.Variant).ThenInclude(v => v!.Product)
             .FirstOrDefaultAsync(q => q.Id == id);
 
-    /// <summary>Validates and builds QuotationItem list from a request item list.
-    /// Returns null and writes a 400 response if validation fails.</summary>
-    private async Task<List<QuotationItem>?> BuildItems(List<QuoteItemRequest> requests)
+    /// <summary>Validates and builds QuotationItem list from variant items and/or bundles.
+    /// Returns null and populates ModelState if validation fails.</summary>
+    private async Task<List<QuotationItem>?> BuildItems(
+        List<QuoteItemRequest>? requests,
+        List<OrderBundleRequest>? bundles)
     {
+        var hasVariants = requests is { Count: > 0 };
+        var hasBundles = bundles is { Count: > 0 };
+        if (!hasVariants && !hasBundles)
+        {
+            ModelState.AddModelError("items", "At least one item or bundle is required.");
+            return null;
+        }
+
         var items = new List<QuotationItem>();
-        foreach (var r in requests)
+        foreach (var r in requests ?? new())
         {
             var variant = await _context.Variants
                 .Include(v => v.Product)
@@ -98,6 +125,41 @@ public class QuotationsController : ControllerBase
                 UnitPrice = variant.Price
             });
         }
+
+        foreach (var bReq in bundles ?? new())
+        {
+            var bundle = await _context.Bundles
+                .Include(b => b.Items).ThenInclude(i => i.Variant).ThenInclude(v => v!.Product)
+                .FirstOrDefaultAsync(b => b.Id == bReq.BundleId);
+
+            if (bundle == null || bundle.Items.Count == 0)
+            {
+                ModelState.AddModelError("bundles", $"Bundle {bReq.BundleId} not found or empty.");
+                return null;
+            }
+
+            foreach (var bi in bundle.Items)
+            {
+                if (bi.Variant == null || bi.Variant.Product is { IsActive: false })
+                {
+                    ModelState.AddModelError("bundles", $"Variant {bi.VariantId} in bundle '{bundle.Name}' is unavailable or inactive.");
+                    return null;
+                }
+            }
+
+            foreach (var line in BundlePricingHelper.ExpandBundle(bundle, bReq.Quantity))
+            {
+                items.Add(new QuotationItem
+                {
+                    VariantId  = line.VariantId,
+                    BundleId   = line.BundleId,
+                    BundleName = line.BundleName,
+                    Quantity   = line.Quantity,
+                    UnitPrice  = line.UnitPrice
+                });
+            }
+        }
+
         return items;
     }
 
@@ -108,7 +170,7 @@ public class QuotationsController : ControllerBase
     [Authorize(Roles = "Customer")]
     public async Task<IActionResult> RequestQuote([FromBody] QuoteRequestBody body)
     {
-        var items = await BuildItems(body.Items);
+        var items = await BuildItems(body.Items, body.Bundles);
         if (items == null) return ValidationProblem(ModelState);
 
         var quotation = new Quotation
@@ -131,18 +193,26 @@ public class QuotationsController : ControllerBase
     [Authorize(Roles = "Staff,Admin")]
     public async Task<IActionResult> Create([FromBody] CreateQuotationRequest request)
     {
-        // Enforce role-based discount ceiling
-        if (CurrentRole == "Staff" && request.DiscountPercent > StaffMaxDiscount)
+        var maxStaffDiscount = await GetMaxStaffDiscountAsync();
+        if (CurrentRole == "Staff" && request.DiscountPercent > maxStaffDiscount)
             return BadRequest(new MessageResponse
             {
-                Message = $"Staff members may not apply a discount greater than {StaffMaxDiscount}%."
+                Message = $"Staff members may not apply a discount greater than {maxStaffDiscount}%."
             });
+
+        DateTime? normalizedExpiresAt = null;
+        if (request.ExpiresAt.HasValue)
+        {
+            normalizedExpiresAt = NormalizeUtc(request.ExpiresAt.Value);
+            if (normalizedExpiresAt <= DateTime.UtcNow)
+                return BadRequest(new MessageResponse { Message = "ExpiresAt must be in the future." });
+        }
 
         var customer = await _context.Users.FindAsync(request.CustomerId);
         if (customer == null || customer.Role != "Customer")
             return BadRequest(new MessageResponse { Message = "CustomerId must reference a valid Customer account." });
 
-        var items = await BuildItems(request.Items);
+        var items = await BuildItems(request.Items, request.Bundles);
         if (items == null) return ValidationProblem(ModelState);
 
         var quotation = new Quotation
@@ -150,6 +220,7 @@ public class QuotationsController : ControllerBase
             CustomerId      = request.CustomerId,
             StaffId         = CurrentUserId,
             DiscountPercent = request.DiscountPercent,
+            ExpiresAt       = normalizedExpiresAt,
             Notes           = request.Notes?.Trim(),
             Status          = QuotationStatus.Draft,
             Items           = items
@@ -222,23 +293,31 @@ public class QuotationsController : ControllerBase
         // Discount ceiling
         if (request.DiscountPercent.HasValue)
         {
-            if (CurrentRole == "Staff" && request.DiscountPercent.Value > StaffMaxDiscount)
+            var maxStaffDiscount = await GetMaxStaffDiscountAsync();
+            if (CurrentRole == "Staff" && request.DiscountPercent.Value > maxStaffDiscount)
                 return BadRequest(new MessageResponse
                 {
-                    Message = $"Staff members may not apply a discount greater than {StaffMaxDiscount}%."
+                    Message = $"Staff members may not apply a discount greater than {maxStaffDiscount}%."
                 });
             quotation.DiscountPercent = request.DiscountPercent.Value;
+        }
+
+        if (request.ExpiresAt.HasValue)
+        {
+            var normalized = NormalizeUtc(request.ExpiresAt.Value);
+            if (normalized <= DateTime.UtcNow)
+                return BadRequest(new MessageResponse { Message = "ExpiresAt must be in the future." });
+            quotation.ExpiresAt = normalized;
         }
 
         if (request.Notes != null)
             quotation.Notes = request.Notes.Trim();
 
-        if (request.Items != null)
+        if (request.Items != null || request.Bundles != null)
         {
-            // Replace existing items
-            _context.QuotationItems.RemoveRange(quotation.Items);
-            var newItems = await BuildItems(request.Items);
+            var newItems = await BuildItems(request.Items, request.Bundles);
             if (newItems == null) return ValidationProblem(ModelState);
+            _context.QuotationItems.RemoveRange(quotation.Items);
             foreach (var item in newItems) item.QuotationId = quotation.Id;
             _context.QuotationItems.AddRange(newItems);
             quotation.Items = newItems;
@@ -255,7 +334,9 @@ public class QuotationsController : ControllerBase
     // POST /api/quotations/{id}/send  — Staff / Admin: mark as Sent
     [HttpPost("{id:int}/send")]
     [Authorize(Roles = "Staff,Admin")]
-    public async Task<IActionResult> Send(int id)
+    public async Task<IActionResult> Send(
+        int id,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] SendQuotationRequest? request = null)
     {
         var quotation = await FindQuotation(id);
         if (quotation == null) return NotFound(new MessageResponse { Message = "Quotation not found." });
@@ -266,9 +347,34 @@ public class QuotationsController : ControllerBase
         if (!quotation.Items.Any())
             return BadRequest(new MessageResponse { Message = "Cannot send an empty quotation." });
 
+        var now = DateTime.UtcNow;
+        DateTime resolvedExpiresAt;
+        if (request?.ExpiresAt.HasValue == true)
+        {
+            resolvedExpiresAt = NormalizeUtc(request.ExpiresAt.Value);
+            if (resolvedExpiresAt <= now)
+                return BadRequest(new MessageResponse { Message = "ExpiresAt must be in the future." });
+        }
+        else if (request?.ValidDays.HasValue == true)
+        {
+            resolvedExpiresAt = now.AddDays(request.ValidDays.Value);
+        }
+        else if (quotation.ExpiresAt.HasValue)
+        {
+            if (quotation.ExpiresAt.Value <= now)
+                return BadRequest(new MessageResponse { Message = "Quotation expiration date has already passed. Set a future ExpiresAt before sending." });
+            resolvedExpiresAt = quotation.ExpiresAt.Value;
+        }
+        else
+        {
+            var defaultDays = await GetDefaultValidityDaysAsync();
+            resolvedExpiresAt = now.AddDays(defaultDays);
+        }
+
         quotation.Status    = QuotationStatus.Sent;
-        quotation.SentAt    = DateTime.UtcNow;
-        quotation.UpdatedAt = DateTime.UtcNow;
+        quotation.SentAt    = now;
+        quotation.ExpiresAt = resolvedExpiresAt;
+        quotation.UpdatedAt = now;
         quotation.StaffId ??= CurrentUserId;
 
         await _context.SaveChangesAsync();
@@ -288,6 +394,9 @@ public class QuotationsController : ControllerBase
 
         if (quotation.Status != QuotationStatus.Sent)
             return BadRequest(new MessageResponse { Message = "Only Sent quotations can be accepted." });
+
+        if (quotation.IsExpired)
+            return BadRequest(new MessageResponse { Message = "This quotation has expired and can no longer be accepted." });
 
         quotation.Status      = QuotationStatus.Accepted;
         quotation.RespondedAt = DateTime.UtcNow;
@@ -310,6 +419,9 @@ public class QuotationsController : ControllerBase
 
         if (quotation.Status != QuotationStatus.Sent)
             return BadRequest(new MessageResponse { Message = "Only Sent quotations can be declined." });
+
+        if (quotation.IsExpired)
+            return BadRequest(new MessageResponse { Message = "This quotation has expired and can no longer be declined." });
 
         quotation.Status        = QuotationStatus.Declined;
         quotation.DeclineReason = body?.Reason?.Trim();
@@ -369,22 +481,33 @@ public class QuotationsController : ControllerBase
             Total           = quotation.Total,
             Items = quotation.Items.Select(i => new SalesOrderItem
             {
-                VariantId = i.VariantId,
-                Quantity  = i.Quantity,
-                UnitPrice = i.UnitPrice
+                VariantId  = i.VariantId,
+                BundleId   = i.BundleId,
+                BundleName = i.BundleName,
+                Quantity   = i.Quantity,
+                UnitPrice  = i.UnitPrice
             }).ToList()
         };
 
+        var stockRunning = quotation.Items
+            .GroupBy(i => i.VariantId)
+            .ToDictionary(g => g.Key, g => g.First().Variant!.Stock);
+
+        foreach (var item in quotation.Items)
+            item.Variant!.Stock -= item.Quantity;
+
         foreach (var item in quotation.Items)
         {
-            item.Variant!.Stock -= item.Quantity;
+            stockRunning[item.VariantId] -= item.Quantity;
             _context.StockMovements.Add(new StockMovement
             {
                 VariantId      = item.VariantId,
                 Type           = "StockOut",
                 QuantityChange = -item.Quantity,
-                StockAfter     = item.Variant.Stock,
-                Reason         = $"Quotation #{quotation.Id} converted to SalesOrder",
+                StockAfter     = stockRunning[item.VariantId],
+                Reason         = item.BundleName != null
+                    ? $"Quotation #{quotation.Id} converted to SalesOrder (Bundle: {item.BundleName})"
+                    : $"Quotation #{quotation.Id} converted to SalesOrder",
                 UserId         = CurrentUserId
             });
         }
@@ -435,19 +558,25 @@ public class QuotationsController : ControllerBase
         var rows = new StringBuilder();
         foreach (var item in q.Items)
         {
+            var bundleTag = !string.IsNullOrWhiteSpace(item.BundleName)
+                ? $" ({WebUtility.HtmlEncode(item.BundleName)})"
+                : "";
             rows.Append(
                 $"<tr>" +
-                $"<td>{item.ProductName} – {item.Model}</td>" +
-                $"<td>{item.Sku}</td>" +
+                $"<td>{WebUtility.HtmlEncode(item.ProductName)} – {WebUtility.HtmlEncode(item.Model)}{bundleTag}</td>" +
+                $"<td>{WebUtility.HtmlEncode(item.Sku)}</td>" +
                 $"<td style=\"text-align:right\">{item.Quantity}</td>" +
                 $"<td style=\"text-align:right\">{item.UnitPrice:F2}</td>" +
                 $"<td style=\"text-align:right\">{item.LineTotal:F2}</td>" +
                 $"</tr>");
         }
 
-        var sentRow  = q.SentAt.HasValue ? $"<p><span>Sent:</span> {q.SentAt:yyyy-MM-dd HH:mm} UTC</p>" : "";
-        var notesRow = !string.IsNullOrWhiteSpace(q.Notes) ? $"<p><span>Notes:</span> {q.Notes}</p>" : "";
-        var staffName = q.StaffName ?? "—";
+        var sentRow    = q.SentAt.HasValue ? $"<p><span>Sent:</span> {q.SentAt:yyyy-MM-dd HH:mm} UTC</p>" : "";
+        var expiresRow = q.ExpiresAt.HasValue
+            ? $"<p><span>Valid Until:</span> {q.ExpiresAt:yyyy-MM-dd HH:mm} UTC{(q.IsExpired ? " (EXPIRED)" : "")}</p>"
+            : "";
+        var notesRow   = !string.IsNullOrWhiteSpace(q.Notes) ? $"<p><span>Notes:</span> {WebUtility.HtmlEncode(q.Notes)}</p>" : "";
+        var staffName  = q.StaffName ?? "—";
 
         return "<!DOCTYPE html>" +
                "<html lang=\"en\"><head><meta charset=\"utf-8\"/>" +
@@ -464,11 +593,11 @@ public class QuotationsController : ControllerBase
                "</style></head><body>" +
                $"<h1>Quotation #{q.Id}</h1>" +
                "<div class=\"meta\">" +
-               $"<p><span>Customer:</span> {q.CustomerName}</p>" +
-               $"<p><span>Handled by:</span> {staffName}</p>" +
-               $"<p><span>Status:</span> {q.Status}</p>" +
+               $"<p><span>Customer:</span> {WebUtility.HtmlEncode(q.CustomerName)}</p>" +
+               $"<p><span>Handled by:</span> {WebUtility.HtmlEncode(staffName)}</p>" +
+               $"<p><span>Status:</span> {WebUtility.HtmlEncode(q.Status)}</p>" +
                $"<p><span>Created:</span> {q.CreatedAt:yyyy-MM-dd HH:mm} UTC</p>" +
-               sentRow + notesRow +
+               sentRow + expiresRow + notesRow +
                "</div>" +
                "<table><thead><tr>" +
                "<th>Product / Model</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Line Total</th>" +

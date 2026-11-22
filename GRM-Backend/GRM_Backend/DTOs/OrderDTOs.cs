@@ -26,6 +26,15 @@ public class OrderItemRequest
     public int Quantity { get; set; }
 }
 
+public class OrderBundleRequest
+{
+    [Required]
+    public int BundleId { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int Quantity { get; set; } = 1;
+}
+
 /// <summary>POST /api/orders/walk-in  (Staff / Admin)</summary>
 public class CreateWalkInOrderRequest
 {
@@ -34,8 +43,9 @@ public class CreateWalkInOrderRequest
     [StringLength(200)]
     public string? CustomerName { get; set; }
 
-    [Required, MinLength(1)]
     public List<OrderItemRequest> Items { get; set; } = new();
+
+    public List<OrderBundleRequest>? Bundles { get; set; }
 
     [Range(0, 100)]
     public decimal DiscountPercent { get; set; } = 0m;
@@ -105,6 +115,8 @@ public class OrderItemDto
 {
     public int Id { get; set; }
     public int VariantId { get; set; }
+    public int? BundleId { get; set; }
+    public string? BundleName { get; set; }
     public string Sku { get; set; } = string.Empty;
     public string ProductName { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;

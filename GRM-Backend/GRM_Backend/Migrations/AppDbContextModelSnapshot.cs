@@ -36,6 +36,9 @@ namespace GRM_Backend.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -76,6 +79,61 @@ namespace GRM_Backend.Migrations
                     b.HasIndex("VariantId");
 
                     b.ToTable("BundleItems");
+                });
+
+            modelBuilder.Entity("GRM_Backend.Models.BusinessSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DefaultQuotationValidityDays")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("MaxStaffDiscountPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("BusinessSettings");
+                });
+
+            modelBuilder.Entity("GRM_Backend.Models.CartBundleItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BundleId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BundleId");
+
+                    b.HasIndex("UserId", "BundleId")
+                        .IsUnique();
+
+                    b.ToTable("CartBundleItems");
                 });
 
             modelBuilder.Entity("GRM_Backend.Models.CartItem", b =>
@@ -249,6 +307,9 @@ namespace GRM_Backend.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("BundleName")
+                        .HasColumnType("text");
+
                     b.Property<int>("InvoiceId")
                         .HasColumnType("integer");
 
@@ -339,7 +400,13 @@ namespace GRM_Backend.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Name")
@@ -364,6 +431,9 @@ namespace GRM_Backend.Migrations
 
                     b.Property<int?>("DefaultReorderQuantity")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("LastReorderCalculatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -588,6 +658,9 @@ namespace GRM_Backend.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 
@@ -624,6 +697,12 @@ namespace GRM_Backend.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("BundleId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BundleName")
+                        .HasColumnType("text");
+
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
 
@@ -638,6 +717,8 @@ namespace GRM_Backend.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BundleId");
 
                     b.HasIndex("QuotationId");
 
@@ -753,6 +834,12 @@ namespace GRM_Backend.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("BundleId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BundleName")
+                        .HasColumnType("text");
+
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
 
@@ -767,6 +854,8 @@ namespace GRM_Backend.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BundleId");
 
                     b.HasIndex("SalesOrderId");
 
@@ -921,6 +1010,27 @@ namespace GRM_Backend.Migrations
                         .IsRequired();
 
                     b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("GRM_Backend.Models.BusinessSettings", b =>
+                {
+                    b.HasOne("GRM_Backend.Models.User", "UpdatedBy")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UpdatedBy");
+                });
+
+            modelBuilder.Entity("GRM_Backend.Models.CartBundleItem", b =>
+                {
+                    b.HasOne("GRM_Backend.Models.Bundle", "Bundle")
+                        .WithMany()
+                        .HasForeignKey("BundleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Bundle");
                 });
 
             modelBuilder.Entity("GRM_Backend.Models.CartItem", b =>
@@ -1112,6 +1222,11 @@ namespace GRM_Backend.Migrations
 
             modelBuilder.Entity("GRM_Backend.Models.QuotationItem", b =>
                 {
+                    b.HasOne("GRM_Backend.Models.Bundle", "Bundle")
+                        .WithMany()
+                        .HasForeignKey("BundleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("GRM_Backend.Models.Quotation", "Quotation")
                         .WithMany("Items")
                         .HasForeignKey("QuotationId")
@@ -1123,6 +1238,8 @@ namespace GRM_Backend.Migrations
                         .HasForeignKey("VariantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Bundle");
 
                     b.Navigation("Quotation");
 
@@ -1162,6 +1279,11 @@ namespace GRM_Backend.Migrations
 
             modelBuilder.Entity("GRM_Backend.Models.SalesOrderItem", b =>
                 {
+                    b.HasOne("GRM_Backend.Models.Bundle", "Bundle")
+                        .WithMany()
+                        .HasForeignKey("BundleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("GRM_Backend.Models.SalesOrder", "SalesOrder")
                         .WithMany("Items")
                         .HasForeignKey("SalesOrderId")
@@ -1173,6 +1295,8 @@ namespace GRM_Backend.Migrations
                         .HasForeignKey("VariantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Bundle");
 
                     b.Navigation("SalesOrder");
 

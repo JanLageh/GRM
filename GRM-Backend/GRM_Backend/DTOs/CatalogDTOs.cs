@@ -8,6 +8,7 @@ public class VariantRequest
     [Required, StringLength(64)] public string Sku { get; set; } = string.Empty;
     [Range(0, 100000000)] public decimal Price { get; set; }
     [Range(0, int.MaxValue)] public int Stock { get; set; }
+    [StringLength(1000)] public string? ImageUrl { get; set; }
 }
 
 public class ProductRequest
@@ -15,6 +16,8 @@ public class ProductRequest
     [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
     [StringLength(2000)] public string? Description { get; set; }
     [Required, StringLength(100)] public string Category { get; set; } = string.Empty;
+    [StringLength(1000)] public string? ImageUrl { get; set; }
+    public bool? IsFeatured { get; set; }
     public bool IsActive { get; set; } = true;
     public List<VariantRequest>? Variants { get; set; }
 }
@@ -22,6 +25,11 @@ public class ProductRequest
 public class ProductStatusRequest
 {
     public bool IsActive { get; set; }
+}
+
+public class ProductFeaturedRequest
+{
+    public bool IsFeatured { get; set; }
 }
 
 public class VariantDto
@@ -32,6 +40,7 @@ public class VariantDto
     public string Sku { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public int Stock { get; set; }
+    public string? ImageUrl { get; set; }
 }
 
 public class ProductDto
@@ -40,6 +49,8 @@ public class ProductDto
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string Category { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public bool IsFeatured { get; set; }
     public bool IsActive { get; set; }
     public decimal? MinPrice { get; set; }
     public int TotalStock { get; set; }
@@ -66,15 +77,18 @@ public class BundleRequest
     [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
     [StringLength(2000)] public string? Description { get; set; }
     [Range(0, 100000000)] public decimal Price { get; set; }
+    [StringLength(1000)] public string? ImageUrl { get; set; }
     [Required, MinLength(1)] public List<BundleItemRequest> Items { get; set; } = new();
 }
 
 public class BundleItemDto
 {
     public int VariantId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
     public string Sku { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
     public int Quantity { get; set; }
+    public int Stock { get; set; }
 }
 
 public class BundleDto
@@ -83,5 +97,7 @@ public class BundleDto
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public decimal Price { get; set; }
+    public string? ImageUrl { get; set; }
+    public int AvailableStock { get; set; }
     public List<BundleItemDto> Items { get; set; } = new();
 }

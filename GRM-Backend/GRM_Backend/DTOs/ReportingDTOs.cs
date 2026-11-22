@@ -205,6 +205,7 @@ public class QuoteConversionReportDto
     public int DraftCount { get; set; }
     public int SentCount { get; set; }
     public int AwaitingResponseCount { get; set; }
+    public int ExpiredCount { get; set; }
     public int AcceptedCount { get; set; }
     public int ConvertedCount { get; set; }
     public int DeclinedCount { get; set; }

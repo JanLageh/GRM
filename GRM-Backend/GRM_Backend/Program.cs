@@ -185,11 +185,11 @@ using (var scope = app.Services.CreateScope())
         ProductVariant V(string model, string sku, decimal price, int stock, int reorder) =>
             new() { Model = model, Sku = sku, Price = price, Stock = stock, ReorderThreshold = reorder };
         db.Products.AddRange(
-            new Product { Name = "Garry SmartLock", Category = "Smart Locks", Description = "Keyless smart door lock.",
+            new Product { Name = "Garry SmartLock", Category = "Smart Locks", IsFeatured = true, Description = "Keyless smart door lock.",
                 Variants = { V("PIN Keypad", "SL-PIN-01", 5990, 24, 15), V("Biometric", "SL-BIO-01", 9490, 12, 8), V("Card + PIN", "SL-CRD-01", 7250, 9, 2) } },
-            new Product { Name = "Monocrystalline Solar Panel Set", Category = "Solar Panels", Description = "High-efficiency mono PERC panel sets.",
+            new Product { Name = "Monocrystalline Solar Panel Set", Category = "Solar Panels", IsFeatured = true, Description = "High-efficiency mono PERC panel sets.",
                 Variants = { V("Small (2 kW)", "SP-S-02", 18500, 15, 7), V("Medium (4 kW)", "SP-M-04", 34900, 10, 7), V("Large (7 kW)", "SP-L-07", 62000, 6, 5) } },
-            new Product { Name = "LiFePO4 Solar Battery", Category = "Batteries", Description = "Wall-mount lithium iron phosphate battery.",
+            new Product { Name = "LiFePO4 Solar Battery", Category = "Batteries", IsFeatured = false, Description = "Wall-mount lithium iron phosphate battery.",
                 Variants = { V("5 kWh", "BT-05", 48000, 8, 6), V("10 kWh", "BT-10", 89000, 5, 5) } });
         db.SaveChanges();
 
@@ -224,6 +224,16 @@ using (var scope = app.Services.CreateScope())
             });
         db.SaveChanges();
     }
+    if (!db.BusinessSettings.Any())
+    {
+        db.BusinessSettings.Add(new BusinessSettings
+        {
+            MaxStaffDiscountPercent = 15m,
+            DefaultQuotationValidityDays = 7,
+            UpdatedAt = DateTime.UtcNow
+        });
+        db.SaveChanges();
+    }
 }
 
 // Configure HTTP request pipeline
@@ -246,6 +256,13 @@ app.UseSwaggerUI(c =>
 });
 
 app.UseHttpsRedirection();
+
+var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(wwwrootPath, "uploads", "products"));
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwrootPath)
+});
 
 app.UseCors("Frontend"); // must run before authentication so preflight (OPTIONS) requests succeed
 

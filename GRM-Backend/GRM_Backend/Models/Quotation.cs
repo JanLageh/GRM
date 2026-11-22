@@ -33,6 +33,7 @@ public class Quotation
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public DateTime? SentAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
     public DateTime? RespondedAt { get; set; }
 
     /// <summary>Customer-visible message when declining.</summary>
@@ -41,6 +42,7 @@ public class Quotation
     public List<QuotationItem> Items { get; set; } = new();
 
     // ── Computed helpers (not persisted) ────────────────────────────────
+    public bool IsExpired => Status == QuotationStatus.Sent && ExpiresAt.HasValue && ExpiresAt.Value <= DateTime.UtcNow;
     public decimal Subtotal => Items.Sum(i => i.UnitPrice * i.Quantity);
     public decimal DiscountAmount => Math.Round(Subtotal * DiscountPercent / 100, 2);
     public decimal Total => Subtotal - DiscountAmount;
@@ -54,6 +56,10 @@ public class QuotationItem
 
     public int VariantId { get; set; }
     public ProductVariant? Variant { get; set; }
+
+    public int? BundleId { get; set; }
+    public Bundle? Bundle { get; set; }
+    public string? BundleName { get; set; }
 
     public int Quantity { get; set; }
 
