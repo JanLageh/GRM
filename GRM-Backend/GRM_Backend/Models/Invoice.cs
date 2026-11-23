@@ -64,6 +64,7 @@ public class InvoiceItem
     public string Sku { get; set; } = string.Empty;
     public string ProductName { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
+    public string? BundleName { get; set; }
 
     public int Quantity { get; set; }
     public decimal UnitPrice { get; set; }

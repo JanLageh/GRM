@@ -1,0 +1,15 @@
+# .NET build output
+bin/
+obj/
+
+# IDEs
+.idea/
+.vs/
+*.user
+
+# Node / Expo
+node_modules/
+.expo/
+
+# Uploaded product images (runtime data)
+GRM-Backend/GRM_Backend/wwwroot/uploads/

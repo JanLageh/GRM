@@ -7,8 +7,9 @@ namespace GRM_Backend.DTOs;
 /// <summary>POST /api/quotations/requests  (Customer)</summary>
 public class QuoteRequestBody
 {
-    [Required, MinLength(1)]
     public List<QuoteItemRequest> Items { get; set; } = new();
+
+    public List<OrderBundleRequest>? Bundles { get; set; }
 
     public string? Notes { get; set; }
 }
@@ -19,11 +20,14 @@ public class CreateQuotationRequest
     [Required]
     public int CustomerId { get; set; }
 
-    [Required, MinLength(1)]
     public List<QuoteItemRequest> Items { get; set; } = new();
+
+    public List<OrderBundleRequest>? Bundles { get; set; }
 
     [Range(0, 100)]
     public decimal DiscountPercent { get; set; } = 0;
+
+    public DateTime? ExpiresAt { get; set; }
 
     public string? Notes { get; set; }
 }
@@ -42,10 +46,23 @@ public class UpdateQuotationRequest
 {
     public List<QuoteItemRequest>? Items { get; set; }
 
+    public List<OrderBundleRequest>? Bundles { get; set; }
+
     [Range(0, 100)]
     public decimal? DiscountPercent { get; set; }
 
+    public DateTime? ExpiresAt { get; set; }
+
     public string? Notes { get; set; }
+}
+
+/// <summary>POST /api/quotations/{id}/send  (Staff / Admin)</summary>
+public class SendQuotationRequest
+{
+    public DateTime? ExpiresAt { get; set; }
+
+    [Range(1, 365)]
+    public int? ValidDays { get; set; }
 }
 
 /// <summary>POST /api/quotations/{id}/accept or /decline  (Customer)</summary>
@@ -61,6 +78,8 @@ public class QuotationItemDto
 {
     public int Id { get; set; }
     public int VariantId { get; set; }
+    public int? BundleId { get; set; }
+    public string? BundleName { get; set; }
     public string Sku { get; set; } = string.Empty;
     public string ProductName { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
@@ -85,6 +104,8 @@ public class QuotationDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? SentAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public bool IsExpired { get; set; }
     public DateTime? RespondedAt { get; set; }
     public string? DeclineReason { get; set; }
     public List<QuotationItemDto> Items { get; set; } = new();

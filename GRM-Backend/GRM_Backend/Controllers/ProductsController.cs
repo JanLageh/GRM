@@ -10,9 +10,20 @@ namespace GRM_Backend.Controllers;
 [ApiController]
 public class ProductsController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private const long MaxImageBytes = 5 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".webp", ".gif"
+    };
 
-    public ProductsController(AppDbContext context) => _context = context;
+    private readonly AppDbContext _context;
+    private readonly IWebHostEnvironment _env;
+
+    public ProductsController(AppDbContext context, IWebHostEnvironment env)
+    {
+        _context = context;
+        _env = env;
+    }
 
     internal static ProductDto ToDto(Product p) => new()
     {
@@ -20,6 +31,8 @@ public class ProductsController : ControllerBase
         Name = p.Name,
         Description = p.Description,
         Category = p.Category,
+        ImageUrl = p.ImageUrl,
+        IsFeatured = p.IsFeatured,
         IsActive = p.IsActive,
         MinPrice = p.Variants.Count > 0 ? p.Variants.Min(v => v.Price) : null,
         TotalStock = p.Variants.Sum(v => v.Stock),
@@ -28,8 +41,42 @@ public class ProductsController : ControllerBase
 
     internal static VariantDto ToDto(ProductVariant v) => new()
     {
-        Id = v.Id, ProductId = v.ProductId, Model = v.Model, Sku = v.Sku, Price = v.Price, Stock = v.Stock
+        Id = v.Id,
+        ProductId = v.ProductId,
+        Model = v.Model,
+        Sku = v.Sku,
+        Price = v.Price,
+        Stock = v.Stock,
+        ImageUrl = v.ImageUrl
     };
+
+    internal static async Task<(string? ImageUrl, string? Error)> SaveImageAsync(IWebHostEnvironment env, IFormFile? file)
+    {
+        if (file == null || file.Length == 0)
+            return (null, "An image file is required.");
+
+        if (file.Length > MaxImageBytes)
+            return (null, "Image file size must not exceed 5 MB.");
+
+        var ext = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext) || !AllowedImageExtensions.Contains(ext))
+            return (null, "Allowed image formats are: .jpg, .jpeg, .png, .webp, .gif.");
+
+        var webRoot = string.IsNullOrWhiteSpace(env.WebRootPath)
+            ? Path.Combine(env.ContentRootPath, "wwwroot")
+            : env.WebRootPath;
+
+        var uploadDir = Path.Combine(webRoot, "uploads", "products");
+        Directory.CreateDirectory(uploadDir);
+
+        var fileName = $"{Guid.NewGuid():N}{ext}";
+        var filePath = Path.Combine(uploadDir, fileName);
+
+        await using var stream = new FileStream(filePath, FileMode.Create);
+        await file.CopyToAsync(stream);
+
+        return ($"/uploads/products/{fileName}", null);
+    }
 
     private bool IsAdmin => User.IsInRole("Admin");
 
@@ -37,7 +84,7 @@ public class ProductsController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResult<ProductDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] string? search, [FromQuery] string? category,
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        [FromQuery] bool? isFeatured = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -45,6 +92,8 @@ public class ProductsController : ControllerBase
         var query = _context.Products.Include(p => p.Variants).AsQueryable();
         if (!(User.Identity?.IsAuthenticated == true && IsAdmin))
             query = query.Where(p => p.IsActive);
+        if (isFeatured.HasValue)
+            query = query.Where(p => p.IsFeatured == isFeatured.Value);
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim().ToLower();
@@ -101,10 +150,16 @@ public class ProductsController : ControllerBase
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
             Category = request.Category.Trim(),
+            ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl.Trim(),
+            IsFeatured = request.IsFeatured ?? false,
             IsActive = request.IsActive,
             Variants = request.Variants?.Select(v => new ProductVariant
             {
-                Model = v.Model.Trim(), Sku = v.Sku.Trim(), Price = v.Price, Stock = v.Stock
+                Model = v.Model.Trim(),
+                Sku = v.Sku.Trim(),
+                Price = v.Price,
+                Stock = v.Stock,
+                ImageUrl = string.IsNullOrWhiteSpace(v.ImageUrl) ? null : v.ImageUrl.Trim()
             }).ToList() ?? new()
         };
         _context.Products.Add(product);
@@ -124,6 +179,10 @@ public class ProductsController : ControllerBase
         product.Name = request.Name.Trim();
         product.Description = request.Description?.Trim();
         product.Category = request.Category.Trim();
+        if (request.ImageUrl != null)
+            product.ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl.Trim();
+        if (request.IsFeatured.HasValue)
+            product.IsFeatured = request.IsFeatured.Value;
         product.IsActive = request.IsActive;
         product.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
@@ -144,6 +203,39 @@ public class ProductsController : ControllerBase
         return Ok(ToDto(product));
     }
 
+    [HttpPatch("api/products/{id:int}/featured")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetFeatured(int id, [FromBody] ProductFeaturedRequest request)
+    {
+        var product = await _context.Products.Include(p => p.Variants).FirstOrDefaultAsync(p => p.Id == id);
+        if (product == null) return NotFound(new MessageResponse { Message = "Product not found." });
+        product.IsFeatured = request.IsFeatured;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(ToDto(product));
+    }
+
+    [HttpPost("api/products/{id:int}/image")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ProductDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UploadProductImage(int id, IFormFile? file)
+    {
+        var product = await _context.Products.Include(p => p.Variants).FirstOrDefaultAsync(p => p.Id == id);
+        if (product == null) return NotFound(new MessageResponse { Message = "Product not found." });
+
+        var (imageUrl, error) = await SaveImageAsync(_env, file);
+        if (error != null) return BadRequest(new MessageResponse { Message = error });
+
+        product.ImageUrl = imageUrl;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(ToDto(product));
+    }
+
     [HttpPost("api/products/{id:int}/variants")]
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(VariantDto), StatusCodes.Status201Created)]
@@ -158,8 +250,12 @@ public class ProductsController : ControllerBase
 
         var variant = new ProductVariant
         {
-            ProductId = id, Model = request.Model.Trim(), Sku = request.Sku.Trim(),
-            Price = request.Price, Stock = request.Stock
+            ProductId = id,
+            Model = request.Model.Trim(),
+            Sku = request.Sku.Trim(),
+            Price = request.Price,
+            Stock = request.Stock,
+            ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl.Trim()
         };
         _context.Variants.Add(variant);
         await _context.SaveChangesAsync();
@@ -182,6 +278,26 @@ public class ProductsController : ControllerBase
         variant.Sku = request.Sku.Trim();
         variant.Price = request.Price;
         variant.Stock = request.Stock;
+        if (request.ImageUrl != null)
+            variant.ImageUrl = string.IsNullOrWhiteSpace(request.ImageUrl) ? null : request.ImageUrl.Trim();
+        await _context.SaveChangesAsync();
+        return Ok(ToDto(variant));
+    }
+
+    [HttpPost("api/variants/{id:int}/image")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(VariantDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UploadVariantImage(int id, IFormFile? file)
+    {
+        var variant = await _context.Variants.FindAsync(id);
+        if (variant == null) return NotFound(new MessageResponse { Message = "Variant not found." });
+
+        var (imageUrl, error) = await SaveImageAsync(_env, file);
+        if (error != null) return BadRequest(new MessageResponse { Message = error });
+
+        variant.ImageUrl = imageUrl;
         await _context.SaveChangesAsync();
         return Ok(ToDto(variant));
     }

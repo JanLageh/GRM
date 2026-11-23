@@ -6,6 +6,8 @@ public class Product
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string Category { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
+    public bool IsFeatured { get; set; } = false;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
@@ -21,7 +23,14 @@ public class ProductVariant
     public string Sku { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public int Stock { get; set; }
+    public string? ImageUrl { get; set; }
     public int ReorderThreshold { get; set; } = 5;
+    public int? DefaultReorderQuantity { get; set; }
+    public int LeadTimeDays { get; set; } = 7;
+    public int SafetyStock { get; set; } = 2;
+    public bool UseDynamicThreshold { get; set; } = true;
+    public decimal SalesVelocity { get; set; } = 0m;
+    public DateTime? LastReorderCalculatedAt { get; set; }
 }
 
 public class StockMovement
@@ -43,6 +52,7 @@ public class Bundle
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public decimal Price { get; set; }
+    public string? ImageUrl { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public List<BundleItem> Items { get; set; } = new();

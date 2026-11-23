@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<BundleItem> BundleItems => Set<BundleItem>();
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<CartBundleItem> CartBundleItems => Set<CartBundleItem>();
     public DbSet<Quotation> Quotations => Set<Quotation>();
     public DbSet<QuotationItem> QuotationItems => Set<QuotationItem>();
     public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
@@ -23,6 +24,12 @@ public class AppDbContext : DbContext
     public DbSet<OrderCorrection> OrderCorrections => Set<OrderCorrection>();
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderItem> PurchaseOrderItems => Set<PurchaseOrderItem>();
+    public DbSet<ContactInquiry> ContactInquiries => Set<ContactInquiry>();
+    public DbSet<BusinessSettings> BusinessSettings => Set<BusinessSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +47,7 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<ProductVariant>().HasIndex(v => v.Sku).IsUnique();
         modelBuilder.Entity<ProductVariant>().Property(v => v.Price).HasPrecision(18, 2);
+        modelBuilder.Entity<ProductVariant>().Property(v => v.SalesVelocity).HasPrecision(10, 2);
         modelBuilder.Entity<StockMovement>()
             .HasOne(m => m.Variant).WithMany().HasForeignKey(m => m.VariantId)
             .OnDelete(DeleteBehavior.Cascade);
@@ -47,6 +55,10 @@ public class AppDbContext : DbContext
             .HasOne(c => c.Variant).WithMany().HasForeignKey(c => c.VariantId)
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<CartItem>().HasIndex(c => new { c.UserId, c.VariantId }).IsUnique();
+        modelBuilder.Entity<CartBundleItem>()
+            .HasOne(c => c.Bundle).WithMany().HasForeignKey(c => c.BundleId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<CartBundleItem>().HasIndex(c => new { c.UserId, c.BundleId }).IsUnique();
         modelBuilder.Entity<Bundle>().Property(b => b.Price).HasPrecision(18, 2);
         modelBuilder.Entity<Bundle>()
             .HasMany(b => b.Items).WithOne().HasForeignKey(i => i.BundleId)
@@ -72,6 +84,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<QuotationItem>()
             .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
             .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<QuotationItem>()
+            .HasOne(i => i.Bundle).WithMany().HasForeignKey(i => i.BundleId)
+            .OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<QuotationItem>()
             .Property(i => i.UnitPrice).HasPrecision(18, 2);
 
@@ -113,6 +128,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SalesOrderItem>()
             .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
             .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SalesOrderItem>()
+            .HasOne(i => i.Bundle).WithMany().HasForeignKey(i => i.BundleId)
+            .OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<SalesOrderItem>()
             .Property(i => i.UnitPrice).HasPrecision(18, 2);
 
@@ -166,5 +184,66 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<InvoiceItem>()
             .Property(it => it.UnitPrice).HasPrecision(18, 2);
+
+        // Supplier
+        modelBuilder.Entity<Supplier>()
+            .HasIndex(s => s.Name).IsUnique();
+
+        // PurchaseRequisition
+        modelBuilder.Entity<PurchaseRequisition>()
+            .HasOne(r => r.Variant).WithMany().HasForeignKey(r => r.VariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PurchaseRequisition>()
+            .HasOne(r => r.RequestedBy).WithMany().HasForeignKey(r => r.RequestedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PurchaseRequisition>()
+            .HasOne(r => r.ReviewedBy).WithMany().HasForeignKey(r => r.ReviewedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<PurchaseRequisition>()
+            .HasIndex(r => r.Status);
+        modelBuilder.Entity<PurchaseRequisition>()
+            .HasIndex(r => r.RequestedByUserId);
+
+        // PurchaseOrder
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasOne(po => po.Supplier).WithMany().HasForeignKey(po => po.SupplierId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasOne(po => po.CreatedBy).WithMany().HasForeignKey(po => po.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasOne(po => po.ApprovedBy).WithMany().HasForeignKey(po => po.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasOne(po => po.Requisition).WithOne(r => r.PurchaseOrder).HasForeignKey<PurchaseOrder>(po => po.RequisitionId)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasIndex(po => po.PoNumber).IsUnique();
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasIndex(po => po.RequisitionId).IsUnique();
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasIndex(po => po.Status);
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasMany(po => po.Items).WithOne(i => i.PurchaseOrder).HasForeignKey(i => i.PurchaseOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // PurchaseOrderItem
+        modelBuilder.Entity<PurchaseOrderItem>()
+            .HasOne(i => i.Variant).WithMany().HasForeignKey(i => i.VariantId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PurchaseOrderItem>()
+            .Property(i => i.UnitCost).HasPrecision(18, 2);
+
+        // ContactInquiry
+        modelBuilder.Entity<ContactInquiry>()
+            .HasIndex(c => c.CreatedAt);
+
+        // BusinessSettings
+        modelBuilder.Entity<BusinessSettings>(entity =>
+        {
+            entity.Property(s => s.MaxStaffDiscountPercent).HasPrecision(5, 2);
+            entity.HasOne(s => s.UpdatedBy).WithMany().HasForeignKey(s => s.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
     }
 }

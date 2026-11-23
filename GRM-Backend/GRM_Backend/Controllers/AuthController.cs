@@ -81,6 +81,7 @@ public class AuthController : ControllerBase
             FullName = user.FullName,
             PhoneNumber = user.PhoneNumber,
             Address = user.Address,
+            IsActive = user.IsActive,
             CreatedAt = user.CreatedAt
         };
 
@@ -113,6 +114,11 @@ public class AuthController : ControllerBase
             return Unauthorized(new MessageResponse { Message = "Invalid credentials." });
         }
 
+        if (!user.IsActive)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new MessageResponse { Message = "This account has been deactivated." });
+        }
+
         var (token, expiresAt) = _tokenService.GenerateToken(user);
 
         var response = new AuthResponse
@@ -129,6 +135,7 @@ public class AuthController : ControllerBase
                 FullName = user.FullName,
                 PhoneNumber = user.PhoneNumber,
                 Address = user.Address,
+                IsActive = user.IsActive,
                 CreatedAt = user.CreatedAt
             }
         };
@@ -185,6 +192,7 @@ public class AuthController : ControllerBase
             FullName = user.FullName,
             PhoneNumber = user.PhoneNumber,
             Address = user.Address,
+            IsActive = user.IsActive,
             CreatedAt = user.CreatedAt
         };
 

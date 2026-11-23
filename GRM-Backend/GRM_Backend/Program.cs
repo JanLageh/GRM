@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using GRM_Backend.Data;
 using GRM_Backend.Models;
@@ -18,6 +19,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddScoped<IReorderService, ReorderService>();
 
 // Add JWT Authentication
 var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForJwtTokenGenerationAndValidationInDevelopmentAndProduction123456!";
@@ -59,7 +61,7 @@ builder.Services.AddAuthentication(options =>
             }
             return Task.CompletedTask;
         },
-        OnTokenValidated = context =>
+        OnTokenValidated = async context =>
         {
             var blacklistService = context.HttpContext.RequestServices.GetRequiredService<ITokenBlacklistService>();
             var token = (context.SecurityToken as Microsoft.IdentityModel.JsonWebTokens.JsonWebToken)?.EncodedToken
@@ -67,8 +69,23 @@ builder.Services.AddAuthentication(options =>
             if (token != null && blacklistService.IsTokenBlacklisted(token))
             {
                 context.Fail("This token has been revoked.");
+                return;
             }
-            return Task.CompletedTask;
+
+            var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdClaim, out var userId))
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userStatus = await db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.IsActive })
+                    .FirstOrDefaultAsync();
+                if (userStatus == null || !userStatus.IsActive)
+                {
+                    context.Fail("This account has been deactivated.");
+                }
+            }
         }
     };
 });
@@ -168,11 +185,11 @@ using (var scope = app.Services.CreateScope())
         ProductVariant V(string model, string sku, decimal price, int stock, int reorder) =>
             new() { Model = model, Sku = sku, Price = price, Stock = stock, ReorderThreshold = reorder };
         db.Products.AddRange(
-            new Product { Name = "Garry SmartLock", Category = "Smart Locks", Description = "Keyless smart door lock.",
+            new Product { Name = "Garry SmartLock", Category = "Smart Locks", IsFeatured = true, Description = "Keyless smart door lock.",
                 Variants = { V("PIN Keypad", "SL-PIN-01", 5990, 24, 15), V("Biometric", "SL-BIO-01", 9490, 12, 8), V("Card + PIN", "SL-CRD-01", 7250, 9, 2) } },
-            new Product { Name = "Monocrystalline Solar Panel Set", Category = "Solar Panels", Description = "High-efficiency mono PERC panel sets.",
+            new Product { Name = "Monocrystalline Solar Panel Set", Category = "Solar Panels", IsFeatured = true, Description = "High-efficiency mono PERC panel sets.",
                 Variants = { V("Small (2 kW)", "SP-S-02", 18500, 15, 7), V("Medium (4 kW)", "SP-M-04", 34900, 10, 7), V("Large (7 kW)", "SP-L-07", 62000, 6, 5) } },
-            new Product { Name = "LiFePO4 Solar Battery", Category = "Batteries", Description = "Wall-mount lithium iron phosphate battery.",
+            new Product { Name = "LiFePO4 Solar Battery", Category = "Batteries", IsFeatured = false, Description = "Wall-mount lithium iron phosphate battery.",
                 Variants = { V("5 kWh", "BT-05", 48000, 8, 6), V("10 kWh", "BT-10", 89000, 5, 5) } });
         db.SaveChanges();
 
@@ -184,6 +201,37 @@ using (var scope = app.Services.CreateScope())
                 Items = { new BundleItem { VariantId = Id("SP-M-04"), Quantity = 1 }, new BundleItem { VariantId = Id("BT-10"), Quantity = 1 } } },
             new Bundle { Name = "Large Solar + Battery Kit", Description = "7 kW panel set with two 10 kWh batteries.", Price = 225000,
                 Items = { new BundleItem { VariantId = Id("SP-L-07"), Quantity = 1 }, new BundleItem { VariantId = Id("BT-10"), Quantity = 2 } } });
+        db.SaveChanges();
+    }
+    if (!db.Suppliers.Any())
+    {
+        db.Suppliers.AddRange(
+            new Supplier
+            {
+                Name = "SunBridge Solar Supply (Cebu)",
+                ContactPerson = "Ramon Uy",
+                Phone = "032 255 0101",
+                Email = "orders@sunbridgesolar.ph",
+                Address = "Mandaue City, Cebu"
+            },
+            new Supplier
+            {
+                Name = "SecureHome Distributors",
+                ContactPerson = "Ana Reyes",
+                Phone = "032 255 0202",
+                Email = "supply@securehome.ph",
+                Address = "Cebu City"
+            });
+        db.SaveChanges();
+    }
+    if (!db.BusinessSettings.Any())
+    {
+        db.BusinessSettings.Add(new BusinessSettings
+        {
+            MaxStaffDiscountPercent = 15m,
+            DefaultQuotationValidityDays = 7,
+            UpdatedAt = DateTime.UtcNow
+        });
         db.SaveChanges();
     }
 }
@@ -208,6 +256,13 @@ app.UseSwaggerUI(c =>
 });
 
 app.UseHttpsRedirection();
+
+var wwwrootPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(Path.Combine(wwwrootPath, "uploads", "products"));
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(wwwrootPath)
+});
 
 app.UseCors("Frontend"); // must run before authentication so preflight (OPTIONS) requests succeed
 

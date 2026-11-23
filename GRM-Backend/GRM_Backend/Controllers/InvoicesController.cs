@@ -79,6 +79,7 @@ public class InvoicesController : ControllerBase
                 Sku = it.Sku,
                 ProductName = it.ProductName,
                 Model = it.Model,
+                BundleName = it.BundleName,
                 Quantity = it.Quantity,
                 UnitPrice = it.UnitPrice,
                 LineTotal = it.LineTotal
@@ -248,6 +249,7 @@ public class InvoicesController : ControllerBase
                     Sku = i.Variant?.Sku ?? string.Empty,
                     ProductName = i.Variant?.Product?.Name ?? string.Empty,
                     Model = i.Variant?.Model ?? string.Empty,
+                    BundleName = i.BundleName,
                     Quantity = i.Quantity,
                     UnitPrice = i.UnitPrice
                 })
@@ -454,6 +456,8 @@ public class InvoicesController : ControllerBase
             var label = string.IsNullOrWhiteSpace(item.Model)
                 ? H(item.ProductName)
                 : $"{H(item.ProductName)} – {H(item.Model)}";
+            if (!string.IsNullOrWhiteSpace(item.BundleName))
+                label += $" <small>[{H(item.BundleName)}]</small>";
             rows.Append(
                 $"<tr>" +
                 $"<td>{H(item.Sku)}</td>" +
