@@ -1149,25 +1149,39 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         const ex = c.find((i) => i.kind === kind && i.refId === refId);
         if (ex) ex.qty += qty;
         else c.push({ kind, refId, qty });
-        return d.variants.find((v) => v.id === refId)?.backendId;
+        return kind === 'variant'
+          ? d.variants.find((v) => v.id === refId)?.backendId
+          : d.bundles.find((b) => b.id === refId)?.backendId;
       });
-      if (res.ok && kind === 'variant' && res.data && roleOf(ref.current) === 'Customer') {
-        grmApi.cart.addItem(res.data, qty).catch(() => { });
+      if (res.ok && res.data && roleOf(ref.current) === 'Customer' && getApiToken()) {
+        if (kind === 'variant') {
+          grmApi.cart.addItem(res.data, qty).catch(() => { });
+        } else {
+          grmApi.cart.addBundle(res.data, qty).catch(() => { });
+        }
       }
       return res;
     },
 
     setCartQty: (kind, refId, qty) => {
-      const bId = ref.current.variants.find((v) => v.id === refId)?.backendId;
+      const bId =
+        kind === 'variant'
+          ? ref.current.variants.find((v) => v.id === refId)?.backendId
+          : ref.current.bundles.find((b) => b.id === refId)?.backendId;
       tx((d) => {
         const k = cartKey(d);
         d.carts[k] = (d.carts[k] ?? [])
           .map((i) => (i.kind === kind && i.refId === refId ? { ...i, qty } : i))
           .filter((i) => i.qty > 0);
       });
-      if (kind === 'variant' && bId && roleOf(ref.current) === 'Customer') {
-        if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
-        else grmApi.cart.removeItem(bId).catch(() => { });
+      if (bId && roleOf(ref.current) === 'Customer' && getApiToken()) {
+        if (kind === 'variant') {
+          if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
+          else grmApi.cart.removeItem(bId).catch(() => { });
+        } else {
+          if (qty > 0) grmApi.cart.updateBundle(bId, qty).catch(() => { });
+          else grmApi.cart.removeBundle(bId).catch(() => { });
+        }
       }
     },
 
@@ -1229,6 +1243,16 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     },
 
     checkout: (payment, address) => {
+      const uid = ref.current.session.userId ?? '';
+      const cartSnapshot = (ref.current.carts[uid] ?? []).map((item) => ({
+        kind: item.kind,
+        qty: item.qty,
+        backendId:
+          item.kind === 'variant'
+            ? ref.current.variants.find((v) => v.id === item.refId)?.backendId
+            : ref.current.bundles.find((b) => b.id === item.refId)?.backendId,
+      }));
+
       const res = tx((d) => {
         need(d, 'Customer');
         const u = cur(d)!;
@@ -1248,16 +1272,32 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         return o;
       });
       if (res.ok && getApiToken()) {
-        grmApi.orders
-          .checkout({ paymentMethod: payment, shippingAddress: address })
-          .then((apiOrder) => {
+        (async () => {
+          try {
+            // Ensure backend PostgreSQL cart matches the checked-out items (handles guest-cart merge & bundles)
+            await grmApi.cart.clear().catch(() => { });
+            for (const item of cartSnapshot) {
+              if (!item.backendId) continue;
+              if (item.kind === 'variant') {
+                await grmApi.cart.addItem(item.backendId, item.qty);
+              } else {
+                await grmApi.cart.addBundle(item.backendId, item.qty);
+              }
+            }
+            const apiOrder = await grmApi.orders.checkout({
+              paymentMethod: payment,
+              shippingAddress: address,
+            });
             tx((d) => {
               const target = d.orders.find((x) => x.id === res.data.id);
               if (target) target.backendId = apiOrder.id;
             });
-            syncWithBackend();
-          })
-          .catch(() => { });
+            await syncWithBackend();
+          } catch (e: any) {
+            flash(`Backend checkout sync failed: ${e?.message || 'Unknown error'}`, 'err');
+            await syncWithBackend();
+          }
+        })();
       }
       return res;
     },
