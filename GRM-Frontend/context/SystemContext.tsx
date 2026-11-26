@@ -1443,27 +1443,29 @@ export function SystemProvider({ children }: { children: ReactNode }) {
       return res;
     },
 
-    advanceOrder: (id) =>
-      tx((d) => {
+    advanceOrder: (id) => {
+      const ord = ref.current.orders.find((x) => x.id === id);
+      const res = tx((d) => {
         need(d, 'Staff', 'Admin');
         const o = d.orders.find((x) => x.id === id);
         if (!o) throw new Error('Order not found');
         if (o.status === 'Pending') o.status = 'Processing';
         else if (o.status === 'Processing') o.status = 'Completed';
         else throw new Error(`Order is ${o.status}`);
-      }),
+        return o.status;
+      });
+      if (res.ok && ord?.backendId && getApiToken()) {
+        grmApi.orders
+          .updateStatus(ord.backendId, res.data)
+          .then(() => syncWithBackend())
+          .catch(() => { });
+      }
+      return res;
+    },
 
     cancelOrder: (id) => {
       const ord = ref.current.orders.find((x) => x.id === id);
-      const expanded = ord
-        ? expand(ref.current, ord.lines)
-        : new Map<string, number>();
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: q,
-        reason: `Cancelled Order ${id}`,
-      }));
+      const currentRole = roleOf(ref.current);
 
       const res = tx((d) => {
         need(d, 'Customer', 'Staff', 'Admin');
@@ -1489,8 +1491,31 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         restock(d, o.lines, o.id);
         o.status = 'Cancelled';
       });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
+      if (res.ok && getApiToken()) {
+        (async () => {
+          try {
+            let backendOrderId = ord?.backendId;
+            if (!backendOrderId) {
+              const apiOrders =
+                currentRole === 'Customer'
+                  ? await grmApi.orders.getMy()
+                  : await grmApi.orders.getAll();
+              const match = apiOrders.find(
+                (ao) =>
+                  ao.status === 'Pending' &&
+                  (!ord || Math.abs(Number(ao.total) - ord.total) < 0.01)
+              );
+              backendOrderId = match?.id;
+            }
+            if (backendOrderId) {
+              await grmApi.orders.cancel(backendOrderId, `Cancelled Order ${id}`);
+            }
+            await syncWithBackend();
+          } catch (e: any) {
+            flash(`Backend order cancellation failed: ${e?.message || 'Unknown error'}`, 'err');
+            await syncWithBackend();
+          }
+        })();
       }
       return res;
     },
