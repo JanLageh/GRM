@@ -11,8 +11,10 @@ import React, {
 import {
   grmApi,
   setApiToken,
+  getApiToken,
   API_BASE_URL,
   ApiQuotationDto,
+  ApiUserDto,
 } from '../services/grmApi';
 
 /* ============================== TYPES ============================== */
@@ -94,6 +96,7 @@ export interface Quotation {
 }
 export interface Order {
   id: string;
+  backendId?: number;
   customerId: string | null;
   customerName: string;
   channel: 'Online' | 'WalkIn';
@@ -110,6 +113,7 @@ export interface Order {
 }
 export interface Invoice {
   id: string;
+  backendId?: number;
   orderId: string;
   amount: number;
   status: InvoiceStatus;
@@ -130,12 +134,14 @@ export interface Movement {
 }
 export interface Supplier {
   id: string;
+  backendId?: number;
   name: string;
   contact: string;
   phone: string;
 }
 export interface Requisition {
   id: string;
+  backendId?: number;
   variantId: string;
   qty: number;
   reason: string;
@@ -301,41 +307,7 @@ function seed(): DB {
     v: 1,
     seq: 20,
     session: { userId: null, token: null },
-    users: [
-      {
-        id: 'U-1',
-        backendId: 1,
-        name: 'Garry (Owner)',
-        email: 'admin@garry.ph',
-        password: 'admin123',
-        phone: '0917 100 0001',
-        address: 'Mahayahay, Bankal, Lapu-Lapu City',
-        role: 'Admin',
-        active: true,
-      },
-      {
-        id: 'U-2',
-        backendId: 2,
-        name: 'Liza Staff',
-        email: 'staff@garry.ph',
-        password: 'staff123',
-        phone: '0917 100 0002',
-        address: 'Lapu-Lapu City',
-        role: 'Staff',
-        active: true,
-      },
-      {
-        id: 'U-3',
-        backendId: 3,
-        name: 'Maria Santos',
-        email: 'customer@garry.ph',
-        password: 'customer123',
-        phone: '0917 100 0003',
-        address: 'Pajo, Lapu-Lapu City',
-        role: 'Customer',
-        active: true,
-      },
-    ],
+    users: [],
     products: [
       {
         id: 'P-1',
@@ -636,15 +608,6 @@ function load(): DB {
   return seed();
 }
 
-const BACKEND_ROLE_CREDENTIALS: Record<
-  Exclude<Role, 'Guest'>,
-  { username: string; password: string }
-> = {
-  Admin: { username: 'admin@grm.local', password: 'Admin123!' },
-  Staff: { username: 'staff@grm.local', password: 'Staff123!' },
-  Customer: { username: 'customer@grm.local', password: 'Customer123!' },
-};
-
 type Notice = { msg: string; tone: 'ok' | 'err' } | null;
 export interface Ctx {
   db: DB;
@@ -657,8 +620,8 @@ export interface Ctx {
   apiBaseUrl: string;
   syncWithBackend: () => Promise<boolean>;
   flash: (msg: string, tone?: 'ok' | 'err') => void;
-  login: (email: string, pw: string) => Res;
-  register: (p: { name: string; email: string; password: string; phone: string }) => Res;
+  login: (email: string, pw: string) => Promise<Res<User>>;
+  register: (p: { name: string; email: string; password: string; phone: string }) => Promise<Res<User>>;
   logout: () => void;
   // switchRole: (r: Role) => void;
   updateProfile: (p: { name: string; phone: string; address: string }) => Res;
@@ -772,20 +735,40 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  /** Helper: obtain a valid Staff/Admin JWT from GRM-Backend for background stock/quotation calls */
-  const getStaffOrAdminBackendToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await grmApi.auth.login(
-        BACKEND_ROLE_CREDENTIALS.Staff.username,
-        BACKEND_ROLE_CREDENTIALS.Staff.password
-      );
-      return res.token;
-    } catch {
-      return null;
+  const upsertUserFromApi = (d: DB, apiUser: ApiUserDto & { isActive?: boolean }): User => {
+    const validRole: Exclude<Role, 'Guest'> =
+      apiUser.role === 'Admin' || apiUser.role === 'Staff' || apiUser.role === 'Customer'
+        ? apiUser.role
+        : 'Customer';
+    let existing = d.users.find(
+      (u) => u.backendId === apiUser.id || u.email.toLowerCase() === apiUser.email.toLowerCase()
+    );
+    if (!existing) {
+      existing = {
+        id: `U-${apiUser.id}`,
+        backendId: apiUser.id,
+        name: apiUser.fullName || apiUser.username,
+        email: apiUser.email,
+        password: '',
+        phone: apiUser.phoneNumber ?? '',
+        address: apiUser.address ?? '',
+        role: validRole,
+        active: apiUser.isActive ?? true,
+      };
+      d.users.push(existing);
+    } else {
+      existing.backendId = apiUser.id;
+      existing.name = apiUser.fullName || apiUser.username;
+      existing.email = apiUser.email;
+      existing.phone = apiUser.phoneNumber ?? existing.phone;
+      existing.address = apiUser.address ?? existing.address;
+      existing.role = validRole;
+      if (apiUser.isActive !== undefined) existing.active = apiUser.isActive;
     }
-  }, []);
+    return existing;
+  };
 
-  /** Synchronize catalog, bundles, quotations, and inventory from GRM-Backend (http://localhost:5133) */
+  /** Synchronize catalog, bundles, settings, suppliers, and users from GRM-Backend (PostgreSQL) */
   const syncWithBackend = useCallback(async (): Promise<boolean> => {
     try {
       const [prodPage, bundleList] = await Promise.all([
@@ -891,6 +874,47 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Sync authenticated resources when a JWT token is present
+      if (getApiToken()) {
+        const [settingsRes, suppliersRes, usersRes] = await Promise.all([
+          grmApi.settings.get().catch(() => null),
+          grmApi.suppliers.list().catch(() => null),
+          roleOf(d) === 'Admin' ? grmApi.users.list().catch(() => null) : Promise.resolve(null),
+        ]);
+
+        if (settingsRes) {
+          d.settings.maxStaffDiscountPercent = Number(settingsRes.maxStaffDiscountPercent);
+        }
+
+        if (suppliersRes) {
+          for (const bs of suppliersRes) {
+            let localSup = d.suppliers.find(
+              (s) => s.backendId === bs.id || s.name.toLowerCase() === bs.name.toLowerCase()
+            );
+            if (!localSup) {
+              d.suppliers.push({
+                id: `S-${bs.id}`,
+                backendId: bs.id,
+                name: bs.name,
+                contact: bs.contactPerson ?? '',
+                phone: bs.phone ?? '',
+              });
+            } else {
+              localSup.backendId = bs.id;
+              localSup.name = bs.name;
+              localSup.contact = bs.contactPerson ?? localSup.contact;
+              localSup.phone = bs.phone ?? localSup.phone;
+            }
+          }
+        }
+
+        if (usersRes) {
+          for (const bu of usersRes) {
+            upsertUserFromApi(d, bu);
+          }
+        }
+      }
+
       syncDrafts(d);
       commit(d);
       setApiOnline(true);
@@ -901,31 +925,13 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     }
   }, [commit]);
 
-  /** Background helper to authenticate role on GRM-Backend and store real JWT */
-  const authenticateBackendRole = useCallback(
-    async (role: Exclude<Role, 'Guest'>, customEmail?: string, customPw?: string) => {
-      try {
-        const creds = BACKEND_ROLE_CREDENTIALS[role];
-        const res = await grmApi.auth
-          .login(customEmail || creds.username, customPw || creds.password)
-          .catch(() => grmApi.auth.login(creds.username, creds.password));
-        setApiToken(res.token);
-        setApiOnline(true);
-        return res;
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  /** Sync variant stock changes (deductions/additions) to GRM-Backend /api/inventory */
+  /** Sync variant stock changes (deductions/additions) to GRM-Backend /api/inventory using the active JWT */
   const pushStockDeltasToBackend = useCallback(
     async (
       deltas: { backendVariantId?: number; delta: number; reason: string }[]
     ) => {
       try {
-        const token = await getStaffOrAdminBackendToken();
+        const token = getApiToken();
         if (!token) return;
         for (const item of deltas) {
           if (!item.backendVariantId || item.delta === 0) continue;
@@ -948,13 +954,32 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         await syncWithBackend();
       } catch { }
     },
-    [getStaffOrAdminBackendToken, syncWithBackend]
+    [syncWithBackend]
   );
 
-  // Initial sync with GRM-Backend on mount
+  // Restore session from stored JWT and sync with GRM-Backend on mount
   useEffect(() => {
-    syncWithBackend();
-  }, [syncWithBackend]);
+    const init = async () => {
+      const token = getApiToken();
+      if (token) {
+        try {
+          const me = await grmApi.auth.me();
+          const d = clone(ref.current);
+          const u = upsertUserFromApi(d, me);
+          d.session = { userId: u.id, token };
+          commit(d);
+          setApiOnline(true);
+        } catch {
+          setApiToken(null);
+          const d = clone(ref.current);
+          d.session = { userId: null, token: null };
+          commit(d);
+        }
+      }
+      await syncWithBackend();
+    };
+    init();
+  }, [commit, syncWithBackend]);
 
   const api: Omit<
     Ctx,
@@ -969,81 +994,98 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     | 'apiBaseUrl'
     | 'syncWithBackend'
   > = {
-    login: (email, pw) => {
-      const res = tx((d) => {
-        const normalized = email.trim().toLowerCase();
-        // Accept both @garry.ph and @grm.local / username aliases
-        const u = d.users.find(
-          (x) =>
-            (x.email.toLowerCase() === normalized ||
-              (normalized === 'admin@grm.local' && x.role === 'Admin') ||
-              (normalized === 'staff@grm.local' && x.role === 'Staff') ||
-              (normalized === 'customer@grm.local' && x.role === 'Customer') ||
-              normalized === x.role.toLowerCase()) &&
-            (x.password === pw ||
-              pw === 'Admin123!' ||
-              pw === 'Staff123!' ||
-              pw === 'Customer123!')
-        );
-        if (!u) throw new Error('Invalid email or password');
-        if (!u.active) throw new Error('This account has been deactivated');
-        makeSession(d, u);
-        return u;
-      });
-      if (res.ok) {
-        authenticateBackendRole(res.data.role, email, pw).then(() =>
-          syncWithBackend()
-        );
+    login: async (email, pw) => {
+      try {
+        const authRes = await grmApi.auth.login(email.trim(), pw);
+        setApiToken(authRes.token);
+        setApiOnline(true);
+        const res = tx((d) => {
+          const u = upsertUserFromApi(d, authRes.user);
+          // Merge guest cart into authenticated user cart
+          if (d.carts.guest?.length) {
+            const c = d.carts[u.id] ?? (d.carts[u.id] = []);
+            for (const g of d.carts.guest) {
+              const ex = c.find((x) => x.kind === g.kind && x.refId === g.refId);
+              if (ex) ex.qty += g.qty;
+              else c.push({ ...g });
+            }
+            d.carts.guest = [];
+          }
+          d.session = { userId: u.id, token: authRes.token };
+          return u;
+        });
+        if (res.ok) {
+          syncWithBackend();
+        }
+        return res;
+      } catch (e: any) {
+        const msg = e?.message || 'Unable to connect to GRM-Backend.';
+        if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
+          setApiOnline(false);
+          return {
+            ok: false,
+            error: `Cannot reach GRM-Backend at ${API_BASE_URL}. Make sure the ASP.NET Core server and PostgreSQL are running.`,
+          };
+        }
+        return { ok: false, error: msg };
       }
-      return res;
     },
 
-    register: (p) => {
-      const res = tx((d) => {
-        if (!p.name.trim() || !p.email.includes('@') || p.password.length < 6)
-          throw new Error(
-            'Enter a name, valid email and a password of 6+ characters'
-          );
-        if (
-          d.users.some(
-            (x) => x.email.toLowerCase() === p.email.trim().toLowerCase()
-          )
-        )
-          throw new Error('Email is already registered');
-        const u: User = {
-          id: nid(d, 'U'),
-          name: p.name.trim(),
+    register: async (p) => {
+      if (!p.name.trim() || !p.email.includes('@') || p.password.length < 6) {
+        return {
+          ok: false,
+          error: 'Enter a name, valid email and a password of 6+ characters',
+        };
+      }
+      try {
+        const baseUsername = p.email
+          .split('@')[0]
+          .replace(/[^a-zA-Z0-9_]/g, '')
+          .slice(0, 40);
+        const username =
+          (baseUsername.length >= 3 ? baseUsername : `user_${baseUsername}`) +
+          Math.floor(10 + Math.random() * 89);
+
+        await grmApi.auth.register({
+          username,
           email: p.email.trim(),
           password: p.password,
-          phone: p.phone,
-          address: '',
-          role: 'Customer',
-          active: true,
-        };
-        d.users.push(u);
-        makeSession(d, u);
-        return u;
-      });
-      if (res.ok) {
-        const username =
-          p.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') +
-          Math.floor(10 + Math.random() * 89);
-        grmApi.auth
-          .register({
-            username,
-            email: p.email.trim(),
-            password: p.password,
-            fullName: p.name.trim(),
-            phoneNumber: p.phone,
-          })
-          .then(() => grmApi.auth.login(p.email.trim(), p.password))
-          .then((authRes) => {
-            setApiToken(authRes.token);
-            setApiOnline(true);
-          })
-          .catch(() => { });
+          fullName: p.name.trim(),
+          phoneNumber: p.phone,
+        });
+        const authRes = await grmApi.auth.login(p.email.trim(), p.password);
+        setApiToken(authRes.token);
+        setApiOnline(true);
+        const res = tx((d) => {
+          const u = upsertUserFromApi(d, authRes.user);
+          if (d.carts.guest?.length) {
+            const c = d.carts[u.id] ?? (d.carts[u.id] = []);
+            for (const g of d.carts.guest) {
+              const ex = c.find((x) => x.kind === g.kind && x.refId === g.refId);
+              if (ex) ex.qty += g.qty;
+              else c.push({ ...g });
+            }
+            d.carts.guest = [];
+          }
+          d.session = { userId: u.id, token: authRes.token };
+          return u;
+        });
+        if (res.ok) {
+          syncWithBackend();
+        }
+        return res;
+      } catch (e: any) {
+        const msg = e?.message || 'Registration failed.';
+        if (msg.includes('Failed to fetch') || msg.includes('Network request failed')) {
+          setApiOnline(false);
+          return {
+            ok: false,
+            error: `Cannot reach GRM-Backend at ${API_BASE_URL}. Make sure the ASP.NET Core server and PostgreSQL are running.`,
+          };
+        }
+        return { ok: false, error: msg };
       }
-      return res;
     },
 
     logout: () => {
@@ -1107,25 +1149,39 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         const ex = c.find((i) => i.kind === kind && i.refId === refId);
         if (ex) ex.qty += qty;
         else c.push({ kind, refId, qty });
-        return d.variants.find((v) => v.id === refId)?.backendId;
+        return kind === 'variant'
+          ? d.variants.find((v) => v.id === refId)?.backendId
+          : d.bundles.find((b) => b.id === refId)?.backendId;
       });
-      if (res.ok && kind === 'variant' && res.data && roleOf(ref.current) === 'Customer') {
-        grmApi.cart.addItem(res.data, qty).catch(() => { });
+      if (res.ok && res.data && roleOf(ref.current) === 'Customer' && getApiToken()) {
+        if (kind === 'variant') {
+          grmApi.cart.addItem(res.data, qty).catch(() => { });
+        } else {
+          grmApi.cart.addBundle(res.data, qty).catch(() => { });
+        }
       }
       return res;
     },
 
     setCartQty: (kind, refId, qty) => {
-      const bId = ref.current.variants.find((v) => v.id === refId)?.backendId;
+      const bId =
+        kind === 'variant'
+          ? ref.current.variants.find((v) => v.id === refId)?.backendId
+          : ref.current.bundles.find((b) => b.id === refId)?.backendId;
       tx((d) => {
         const k = cartKey(d);
         d.carts[k] = (d.carts[k] ?? [])
           .map((i) => (i.kind === kind && i.refId === refId ? { ...i, qty } : i))
           .filter((i) => i.qty > 0);
       });
-      if (kind === 'variant' && bId && roleOf(ref.current) === 'Customer') {
-        if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
-        else grmApi.cart.removeItem(bId).catch(() => { });
+      if (bId && roleOf(ref.current) === 'Customer' && getApiToken()) {
+        if (kind === 'variant') {
+          if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
+          else grmApi.cart.removeItem(bId).catch(() => { });
+        } else {
+          if (qty > 0) grmApi.cart.updateBundle(bId, qty).catch(() => { });
+          else grmApi.cart.removeBundle(bId).catch(() => { });
+        }
       }
     },
 
@@ -1172,9 +1228,9 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         return qObj;
       });
 
-      if (res.ok && backendItems.length > 0) {
-        authenticateBackendRole('Customer')
-          .then(() => grmApi.quotations.requestQuote(backendItems, note))
+      if (res.ok && backendItems.length > 0 && getApiToken()) {
+        grmApi.quotations
+          .requestQuote(backendItems, note)
           .then((apiQ: ApiQuotationDto) => {
             tx((d) => {
               const target = d.quotations.find((x) => x.id === res.data.id);
@@ -1187,14 +1243,14 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     },
 
     checkout: (payment, address) => {
-      const currentItems =
-        ref.current.carts[ref.current.session.userId ?? ''] ?? [];
-      const expanded = expand(ref.current, currentItems);
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: -q,
-        reason: 'Customer Online Order Checkout',
+      const uid = ref.current.session.userId ?? '';
+      const cartSnapshot = (ref.current.carts[uid] ?? []).map((item) => ({
+        kind: item.kind,
+        qty: item.qty,
+        backendId:
+          item.kind === 'variant'
+            ? ref.current.variants.find((v) => v.id === item.refId)?.backendId
+            : ref.current.bundles.find((b) => b.id === item.refId)?.backendId,
       }));
 
       const res = tx((d) => {
@@ -1215,23 +1271,39 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         d.carts[u.id] = [];
         return o;
       });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
+      if (res.ok && getApiToken()) {
+        (async () => {
+          try {
+            // Ensure backend PostgreSQL cart matches the checked-out items (handles guest-cart merge & bundles)
+            await grmApi.cart.clear().catch(() => { });
+            for (const item of cartSnapshot) {
+              if (!item.backendId) continue;
+              if (item.kind === 'variant') {
+                await grmApi.cart.addItem(item.backendId, item.qty);
+              } else {
+                await grmApi.cart.addBundle(item.backendId, item.qty);
+              }
+            }
+            const apiOrder = await grmApi.orders.checkout({
+              paymentMethod: payment,
+              shippingAddress: address,
+            });
+            tx((d) => {
+              const target = d.orders.find((x) => x.id === res.data.id);
+              if (target) target.backendId = apiOrder.id;
+            });
+            await syncWithBackend();
+          } catch (e: any) {
+            flash(`Backend checkout sync failed: ${e?.message || 'Unknown error'}`, 'err');
+            await syncWithBackend();
+          }
+        })();
       }
       return res;
     },
 
     acceptQuotation: (id, payment) => {
       const targetQuote = ref.current.quotations.find((q) => q.id === id);
-      const expanded = targetQuote
-        ? expand(ref.current, targetQuote.lines)
-        : new Map<string, number>();
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: -q,
-        reason: `Accepted Quotation ${id}`,
-      }));
 
       const res = tx((d) => {
         need(d, 'Customer', 'Staff', 'Admin');
@@ -1259,20 +1331,12 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         return o;
       });
 
-      if (res.ok) {
-        if (targetQuote?.backendId) {
-          const bId = targetQuote.backendId;
-          authenticateBackendRole('Customer')
-            .then(() => grmApi.quotations.accept(bId))
-            .then(() => getStaffOrAdminBackendToken())
-            .then((staffToken) =>
-              staffToken ? grmApi.quotations.convert(bId, staffToken) : null
-            )
-            .then(() => syncWithBackend())
-            .catch(() => pushStockDeltasToBackend(deltas));
-        } else {
-          pushStockDeltasToBackend(deltas);
-        }
+      if (res.ok && targetQuote?.backendId && getApiToken()) {
+        const bId = targetQuote.backendId;
+        grmApi.quotations
+          .accept(bId)
+          .then(() => syncWithBackend())
+          .catch(() => { });
       }
       return res;
     },
@@ -1379,27 +1443,29 @@ export function SystemProvider({ children }: { children: ReactNode }) {
       return res;
     },
 
-    advanceOrder: (id) =>
-      tx((d) => {
+    advanceOrder: (id) => {
+      const ord = ref.current.orders.find((x) => x.id === id);
+      const res = tx((d) => {
         need(d, 'Staff', 'Admin');
         const o = d.orders.find((x) => x.id === id);
         if (!o) throw new Error('Order not found');
         if (o.status === 'Pending') o.status = 'Processing';
         else if (o.status === 'Processing') o.status = 'Completed';
         else throw new Error(`Order is ${o.status}`);
-      }),
+        return o.status;
+      });
+      if (res.ok && ord?.backendId && getApiToken()) {
+        grmApi.orders
+          .updateStatus(ord.backendId, res.data)
+          .then(() => syncWithBackend())
+          .catch(() => { });
+      }
+      return res;
+    },
 
     cancelOrder: (id) => {
       const ord = ref.current.orders.find((x) => x.id === id);
-      const expanded = ord
-        ? expand(ref.current, ord.lines)
-        : new Map<string, number>();
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: q,
-        reason: `Cancelled Order ${id}`,
-      }));
+      const currentRole = roleOf(ref.current);
 
       const res = tx((d) => {
         need(d, 'Customer', 'Staff', 'Admin');
@@ -1425,8 +1491,31 @@ export function SystemProvider({ children }: { children: ReactNode }) {
         restock(d, o.lines, o.id);
         o.status = 'Cancelled';
       });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
+      if (res.ok && getApiToken()) {
+        (async () => {
+          try {
+            let backendOrderId = ord?.backendId;
+            if (!backendOrderId) {
+              const apiOrders =
+                currentRole === 'Customer'
+                  ? await grmApi.orders.getMy()
+                  : await grmApi.orders.getAll();
+              const match = apiOrders.find(
+                (ao) =>
+                  ao.status === 'Pending' &&
+                  (!ord || Math.abs(Number(ao.total) - ord.total) < 0.01)
+              );
+              backendOrderId = match?.id;
+            }
+            if (backendOrderId) {
+              await grmApi.orders.cancel(backendOrderId, `Cancelled Order ${id}`);
+            }
+            await syncWithBackend();
+          } catch (e: any) {
+            flash(`Backend order cancellation failed: ${e?.message || 'Unknown error'}`, 'err');
+            await syncWithBackend();
+          }
+        })();
       }
       return res;
     },
@@ -1849,30 +1938,62 @@ export function SystemProvider({ children }: { children: ReactNode }) {
       return res;
     },
 
-    setMaxDiscount: (pct) =>
-      tx((d) => {
+    setMaxDiscount: (pct) => {
+      const res = tx((d) => {
         need(d, 'Admin');
         if (!(pct >= 0 && pct <= 100)) throw new Error('Enter 0–100');
         d.settings.maxStaffDiscountPercent = pct;
-      }),
+      });
+      if (res.ok && getApiToken()) {
+        grmApi.settings.update({ maxStaffDiscountPercent: pct }).catch(() => { });
+      }
+      return res;
+    },
 
-    saveSupplier: (p) =>
-      tx((d) => {
+    saveSupplier: (p) => {
+      const res = tx((d) => {
         need(d, 'Admin');
         if (!p.name.trim()) throw new Error('Supplier name is required');
-        if (p.id)
-          Object.assign(d.suppliers.find((x) => x.id === p.id)!, p);
-        else
-          d.suppliers.push({
+        if (p.id) {
+          const existing = d.suppliers.find((x) => x.id === p.id)!;
+          Object.assign(existing, p);
+          return existing;
+        } else {
+          const created: Supplier = {
             id: nid(d, 'S'),
             name: p.name.trim(),
             contact: p.contact ?? '',
             phone: p.phone ?? '',
-          });
-      }),
+          };
+          d.suppliers.push(created);
+          return created;
+        }
+      });
+      if (res.ok && getApiToken()) {
+        if (res.data.backendId) {
+          grmApi.suppliers
+            .update(res.data.backendId, {
+              name: res.data.name,
+              contactPerson: res.data.contact,
+              phone: res.data.phone,
+            })
+            .catch(() => { });
+        } else {
+          grmApi.suppliers
+            .create({
+              name: res.data.name,
+              contactPerson: res.data.contact,
+              phone: res.data.phone,
+            })
+            .then(() => syncWithBackend())
+            .catch(() => { });
+        }
+      }
+      return res;
+    },
 
-    saveUser: (p) =>
-      tx((d) => {
+    saveUser: (p) => {
+      const res = tx((d) => {
         need(d, 'Admin');
         if (!p.name.trim() || !p.email.includes('@'))
           throw new Error('Name and valid email are required');
@@ -1890,10 +2011,11 @@ export function SystemProvider({ children }: { children: ReactNode }) {
           u.email = p.email;
           u.role = p.role;
           if (p.password) u.password = p.password;
+          return { user: u, created: false };
         } else {
           if (!p.password || p.password.length < 6)
             throw new Error('Password must be 6+ characters');
-          d.users.push({
+          const u: User = {
             id: nid(d, 'U'),
             name: p.name.trim(),
             email: p.email.trim(),
@@ -1902,26 +2024,64 @@ export function SystemProvider({ children }: { children: ReactNode }) {
             address: '',
             role: p.role,
             active: true,
-          });
+          };
+          d.users.push(u);
+          return { user: u, created: true };
         }
-      }),
+      });
+      if (res.ok && res.data.created && getApiToken() && p.password) {
+        const baseUsername = p.email
+          .split('@')[0]
+          .replace(/[^a-zA-Z0-9_]/g, '')
+          .slice(0, 40);
+        const username =
+          (baseUsername.length >= 3 ? baseUsername : `user_${baseUsername}`) +
+          Math.floor(10 + Math.random() * 89);
+        grmApi.users
+          .create({
+            username,
+            email: p.email.trim(),
+            password: p.password,
+            role: p.role,
+            fullName: p.name.trim(),
+            phoneNumber: p.phone,
+          })
+          .then(() => syncWithBackend())
+          .catch(() => { });
+      }
+      return res;
+    },
 
-    toggleUser: (id) =>
-      tx((d) => {
+    toggleUser: (id) => {
+      const targetUser = ref.current.users.find((x) => x.id === id);
+      const res = tx((d) => {
         need(d, 'Admin');
         const u = d.users.find((x) => x.id === id);
         if (!u) throw new Error('User not found');
         if (u.id === d.session.userId)
           throw new Error('You cannot deactivate your own account');
         u.active = !u.active;
-      }),
+        return u.active;
+      });
+      if (res.ok && targetUser?.backendId && getApiToken()) {
+        grmApi.users.setStatus(targetUser.backendId, res.data).catch(() => { });
+      }
+      return res;
+    },
 
-    submitInquiry: (p) =>
-      tx((d) => {
+    submitInquiry: (p) => {
+      const res = tx((d) => {
         if (!p.name.trim() || !p.email.includes('@') || !p.message.trim())
           throw new Error('Please complete all fields');
         d.inquiries.push({ id: nid(d, 'IN'), ...p, at: nowISO() });
-      }),
+      });
+      if (res.ok) {
+        grmApi.contact
+          .submit({ name: p.name.trim(), email: p.email.trim(), message: p.message.trim() })
+          .catch(() => { });
+      }
+      return res;
+    },
 
     resetDemo: () => {
       commit(seed());

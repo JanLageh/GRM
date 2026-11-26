@@ -7,10 +7,27 @@ export const API_BASE_URL =
   (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
   'http://localhost:5133';
 
-let currentJwtToken: string | null = null;
+const TOKEN_STORAGE_KEY = 'grm_jwt_token';
+
+function loadStoredToken(): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(TOKEN_STORAGE_KEY);
+    }
+  } catch { }
+  return null;
+}
+
+let currentJwtToken: string | null = loadStoredToken();
 
 export function setApiToken(token: string | null) {
   currentJwtToken = token;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      else localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch { }
 }
 
 export function getApiToken(): string | null {
@@ -157,6 +174,118 @@ export interface ApiSalesOrderDto {
   customerId: number;
   customerName: string;
   total: number;
+  createdAt: string;
+}
+
+export interface ApiOrderItemDto {
+  id: number;
+  variantId: number;
+  bundleId?: number | null;
+  bundleName?: string | null;
+  sku: string;
+  productName: string;
+  model: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface ApiOrderDto {
+  id: number;
+  quotationId?: number | null;
+  customerId?: number | null;
+  customerName: string;
+  staffId?: number | null;
+  staffName?: string | null;
+  channel: string;
+  status: string;
+  paymentMethod?: string | null;
+  shippingAddress?: string | null;
+  notes?: string | null;
+  discountPercent: number;
+  subtotal: number;
+  discountAmount: number;
+  total: number;
+  createdAt: string;
+  items: ApiOrderItemDto[];
+}
+
+export interface ApiInvoiceDto {
+  id: number;
+  invoiceNumber: string;
+  orderId: number;
+  customerId?: number | null;
+  customerName: string;
+  paymentStatus: string;
+  paymentMethod?: string | null;
+  subtotal: number;
+  discountPercent: number;
+  discountAmount: number;
+  totalAmount: number;
+  amountPaid: number;
+  balanceDue: number;
+  issuedAt: string;
+  paidAt?: string | null;
+  isVoided: boolean;
+  voidReason?: string | null;
+}
+
+export interface ApiSupplierDto {
+  id: number;
+  name: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  isActive: boolean;
+}
+
+export interface ApiRequisitionDto {
+  id: number;
+  variantId: number;
+  sku: string;
+  productName: string;
+  model: string;
+  quantity: number;
+  reason: string;
+  status: string;
+  requestedByName: string;
+  purchaseOrderId?: number | null;
+  createdAt: string;
+}
+
+export interface ApiPurchaseOrderDto {
+  id: number;
+  poNumber: string;
+  supplierId?: number | null;
+  supplierName?: string | null;
+  status: string;
+  source: string;
+  notes?: string | null;
+  createdAt: string;
+  items: {
+    id: number;
+    variantId: number;
+    sku: string;
+    quantityOrdered: number;
+    quantityReceived: number;
+    unitCost: number;
+  }[];
+}
+
+export interface ApiBusinessSettingsDto {
+  maxStaffDiscountPercent: number;
+  defaultQuotationValidityDays: number;
+  updatedAt: string;
+}
+
+export interface ApiContactInquiryDto {
+  id: number;
+  name: string;
+  email: string;
+  phoneNumber?: string | null;
+  subject?: string | null;
+  message: string;
   createdAt: string;
 }
 
@@ -375,6 +504,23 @@ export const grmApi = {
         method: 'DELETE',
       }),
 
+    addBundle: (bundleId: number, quantity: number) =>
+      request<ApiCartDto>('/api/cart/bundles', {
+        method: 'POST',
+        body: JSON.stringify({ bundleId, quantity }),
+      }),
+
+    updateBundle: (bundleId: number, quantity: number) =>
+      request<ApiCartDto>(`/api/cart/bundles/${bundleId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ quantity }),
+      }),
+
+    removeBundle: (bundleId: number) =>
+      request<ApiCartDto>(`/api/cart/bundles/${bundleId}`, {
+        method: 'DELETE',
+      }),
+
     clear: () => request<void>('/api/cart', { method: 'DELETE' }),
   },
 
@@ -512,6 +658,212 @@ export const grmApi = {
       ),
 
     pdfUrl: (id: number) => `${API_BASE_URL}/api/quotations/${id}/pdf`,
+  },
+
+  orders: {
+    checkout: (payload: {
+      paymentMethod?: string;
+      shippingAddress?: string;
+      notes?: string;
+    }) =>
+      request<ApiOrderDto>('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    walkIn: (payload: {
+      customerId?: number;
+      customerName?: string;
+      items: { variantId: number; quantity: number }[];
+      bundles?: { bundleId: number; quantity: number }[];
+      discountPercent?: number;
+      paymentMethod?: string;
+      notes?: string;
+      status?: string;
+    }) =>
+      request<ApiOrderDto>('/api/orders/walk-in', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    getAll: () => request<ApiOrderDto[]>('/api/orders'),
+    getMy: () => request<ApiOrderDto[]>('/api/orders/my'),
+    getById: (id: number) => request<ApiOrderDto>(`/api/orders/${id}`),
+
+    updateStatus: (id: number, status: string) =>
+      request<ApiOrderDto>(`/api/orders/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
+
+    cancel: (id: number, reason?: string) =>
+      request<ApiOrderDto>(`/api/orders/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+  },
+
+  invoices: {
+    generate: (
+      orderId: number,
+      payload?: {
+        paymentMethod?: string;
+        paymentStatus?: string;
+        amountPaid?: number;
+        notes?: string;
+      }
+    ) =>
+      request<ApiInvoiceDto>(`/api/orders/${orderId}/invoice`, {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }),
+
+    getAll: () => request<ApiInvoiceDto[]>('/api/invoices'),
+    getMy: () => request<ApiInvoiceDto[]>('/api/invoices/my'),
+    getById: (id: number) => request<ApiInvoiceDto>(`/api/invoices/${id}`),
+
+    updatePaymentStatus: (
+      id: number,
+      payload: { paymentStatus: string; amountPaid?: number; paymentMethod?: string }
+    ) =>
+      request<ApiInvoiceDto>(`/api/invoices/${id}/payment-status`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+
+    void: (id: number, reason: string) =>
+      request<ApiInvoiceDto>(`/api/invoices/${id}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+
+    pdfUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/pdf`,
+  },
+
+  suppliers: {
+    list: () => request<ApiSupplierDto[]>('/api/suppliers'),
+    create: (payload: {
+      name: string;
+      contactPerson?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+    }) =>
+      request<ApiSupplierDto>('/api/suppliers', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    update: (
+      id: number,
+      payload: {
+        name: string;
+        contactPerson?: string;
+        phone?: string;
+        email?: string;
+        address?: string;
+        isActive?: boolean;
+      }
+    ) =>
+      request<ApiSupplierDto>(`/api/suppliers/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+    remove: (id: number) =>
+      request<void>(`/api/suppliers/${id}`, { method: 'DELETE' }),
+  },
+
+  requisitions: {
+    list: () => request<ApiRequisitionDto[]>('/api/requisitions'),
+    create: (payload: { variantId: number; quantity: number; reason: string }) =>
+      request<ApiRequisitionDto>('/api/requisitions', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    approve: (
+      id: number,
+      payload?: { supplierId?: number; createPurchaseOrder?: boolean; notes?: string }
+    ) =>
+      request<ApiRequisitionDto>(`/api/requisitions/${id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(payload ?? {}),
+      }),
+    decline: (id: number, reason?: string) =>
+      request<ApiRequisitionDto>(`/api/requisitions/${id}/decline`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+  },
+
+  purchaseOrders: {
+    list: () => request<ApiPurchaseOrderDto[]>('/api/purchase-orders'),
+    approve: (id: number, supplierId?: number) =>
+      request<ApiPurchaseOrderDto>(`/api/purchase-orders/${id}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ supplierId }),
+      }),
+    send: (id: number) =>
+      request<ApiPurchaseOrderDto>(`/api/purchase-orders/${id}/send`, {
+        method: 'POST',
+      }),
+    receive: (
+      id: number,
+      items: { variantId: number; quantityReceived: number }[],
+      notes?: string
+    ) =>
+      request<ApiPurchaseOrderDto>(`/api/purchase-orders/${id}/receive`, {
+        method: 'POST',
+        body: JSON.stringify({ items, notes }),
+      }),
+    pdfUrl: (id: number) => `${API_BASE_URL}/api/purchase-orders/${id}/pdf`,
+  },
+
+  settings: {
+    get: () => request<ApiBusinessSettingsDto>('/api/settings'),
+    update: (payload: {
+      maxStaffDiscountPercent?: number;
+      defaultQuotationValidityDays?: number;
+    }) =>
+      request<ApiBusinessSettingsDto>('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
+  },
+
+  users: {
+    list: () => request<(ApiUserDto & { isActive: boolean })[]>('/api/users'),
+    create: (payload: {
+      username: string;
+      email: string;
+      password: string;
+      role: string;
+      fullName?: string;
+      phoneNumber?: string;
+      address?: string;
+    }) =>
+      request<ApiUserDto & { isActive: boolean }>('/api/users', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    setStatus: (id: number, isActive: boolean) =>
+      request<ApiUserDto & { isActive: boolean }>(`/api/users/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      }),
+  },
+
+  contact: {
+    submit: (payload: {
+      name: string;
+      email: string;
+      phoneNumber?: string;
+      subject?: string;
+      message: string;
+    }) =>
+      request<ApiContactInquiryDto>('/api/contact', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    list: () => request<ApiContactInquiryDto[]>('/api/contact'),
   },
 };
 
