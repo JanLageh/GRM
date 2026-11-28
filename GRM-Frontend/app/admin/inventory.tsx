@@ -9,8 +9,9 @@ function InvoiceRow({ id }: { id: string }) {
   const { db, voidInvoice, markPaid, flash } = useSystem();
   const router = useRouter();
   const [reason, setReason] = useState('');
-  const i = db.invoices.find((x) => x.id === id)!;
-  const act = (r: any, m: string) => flash(r.ok ? m : r.error, r.ok ? 'ok' : 'err');
+  const i = db.invoices.find((x) => x.id === id);
+  if (!i) return null;
+  const act = async (p: Promise<any>, m: string) => { const r = await p; flash(r.ok ? m : r.error, r.ok ? 'ok' : 'err'); };
   return (
     <Row style={{ alignItems: 'center', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 8 }}>
       <View style={{ minWidth: 150 }}><T bold>{i.id}</T><Muted>{i.orderId} · {peso(i.amount)}</Muted></View>
@@ -31,7 +32,7 @@ export default function Inventory() {
   const [vid, setVid] = useState('');
   const [count, setCount] = useState('');
   const [reason, setReason] = useState('');
-  const go = () => { const r = adjustStock({ variantId: vid, newCount: Number(count), reason }); if (r.ok) { flash('Stock adjusted & audited'); setReason(''); setCount(''); } else flash(r.error, 'err'); };
+  const go = async () => { const r = await adjustStock({ variantId: vid, newCount: Number(count), reason }); if (r.ok) { flash('Stock adjusted & audited'); setReason(''); setCount(''); } else flash(r.error, 'err'); };
   return (
     <Screen>
       <H1>Stock Adjustments & Invoice Control</H1>

@@ -14,27 +14,34 @@ function POCard({ po }: { po: PurchaseOrder }) {
   const { db, updatePO, setPOStatus, discardPO, flash } = useSystem();
   const router = useRouter();
   const [qty, setQty] = useState(po.lines.map((l) => String(l.qty)));
-  const act = (r: any, m: string) => flash(r.ok ? m : r.error, r.ok ? 'ok' : 'err');
+  const act = async (p: Promise<any>, m: string) => { const r = await p; flash(r.ok ? m : r.error, r.ok ? 'ok' : 'err'); };
   const editable = po.status === 'Draft' || po.status === 'Approved';
   const saveQty = () => act(updatePO(po.id, { lines: po.lines.map((l, i) => ({ ...l, qty: Number(qty[i]) })) }), `${po.id} updated`);
+  const approvePO = async () => {
+    const upd = await updatePO(po.id, { lines: po.lines.map((l, i) => ({ ...l, qty: Number(qty[i]) })) });
+    if (!upd.ok) { flash(upd.error, 'err'); return; }
+    await act(setPOStatus(po.id, 'Approved'), `${po.id} approved`);
+  };
   return (
     <View testID={`po-${po.id}`} style={{ gap: 8, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 12 }}>
       <Row style={{ alignItems: 'center' }}><T bold>{po.id}</T><StatusBadge s={po.status} /><Badge text={po.source} /><Muted>{fmtDate(po.createdAt)}</Muted></Row>
       <Muted>{po.note}</Muted>
       {po.lines.map((l, i) => {
-        const v = db.variants.find((x) => x.id === l.variantId)!;
+        const v = db.variants.find((x) => x.id === l.variantId);
+        const sku = v?.sku ?? l.sku ?? '?';
+        const lbl = v ? variantLabel(db, v) : `${l.productName ?? '?'} — ${l.model ?? ''}`;
         return (
           <Row key={i} style={{ alignItems: 'center' }}>
-            <View style={{ flex: 2, minWidth: 200 }}><T bold>{v.sku}</T><Muted>{variantLabel(db, v)} · stock {v.stock} · received {l.received}</Muted></View>
+            <View style={{ flex: 2, minWidth: 200 }}><T bold>{sku}</T><Muted>{lbl} · stock {v?.stock ?? '?'} · received {l.received}</Muted></View>
             {editable ? <Field label="Order qty" value={qty[i]} onChangeText={(t) => setQty(qty.map((x, k) => (k === i ? t : x)))} keyboardType="numeric" testID={`poqty-${po.id}`} /> : <T bold>Qty {l.qty}</T>}
           </Row>
         );
       })}
-      <Muted>Supplier: {db.suppliers.find((s) => s.id === po.supplierId)?.name ?? 'unassigned'}</Muted>
+      <Muted>Supplier: {po.supplierName ?? db.suppliers.find((s) => s.id === po.supplierId)?.name ?? 'unassigned'}</Muted>
       {editable && <SupplierChips value={po.supplierId} onChange={(id) => act(updatePO(po.id, { supplierId: id }), 'Supplier assigned')} />}
       <Row>
         {editable && <Btn small kind="ghost" title="Save quantities" onPress={saveQty} />}
-        {po.status === 'Draft' && <Btn small kind="ok" title="Approve → Official PO" onPress={() => { saveQty(); act(setPOStatus(po.id, 'Approved'), `${po.id} approved`); }} testID={`approve-${po.id}`} />}
+        {po.status === 'Draft' && <Btn small kind="ok" title="Approve → Official PO" onPress={approvePO} testID={`approve-${po.id}`} />}
         {po.status === 'Approved' && <Btn small title="Mark Sent to Supplier" onPress={() => act(setPOStatus(po.id, 'Sent'), `${po.id} sent`)} testID={`send-${po.id}`} />}
         {po.status === 'Draft' && <Btn small kind="danger" title="Discard" onPress={() => act(discardPO(po.id), 'Draft discarded')} />}
         <Btn small kind="ghost" title="Print PO" onPress={() => router.push(`/admin/po/${po.id}` as any)} />
@@ -45,15 +52,16 @@ function POCard({ po }: { po: PurchaseOrder }) {
 }
 
 export default function AdminPurchasing() {
-  const { db, decideRequisition, flash } = useSystem();
+  const { db, decideRequisition, recalculateReorder, flash } = useSystem();
   const [sup, setSup] = useState<Record<string, string>>({});
-  const decide = (id: string, ok: boolean) => { const r = decideRequisition(id, ok, sup[id] ?? db.suppliers[0]?.id); flash(r.ok ? (ok ? 'Requisition approved → PO created' : 'Requisition declined') : r.error, r.ok ? 'ok' : 'err'); };
+  const decide = async (id: string, ok: boolean) => { const r = await decideRequisition(id, ok, sup[id] ?? db.suppliers[0]?.id); flash(r.ok ? (ok ? 'Requisition approved → PO created' : 'Requisition declined') : r.error, r.ok ? 'ok' : 'err'); };
+  const recalc = async () => { const r = await recalculateReorder(); flash(r.ok ? `Recalculated — ${r.data.draftPurchaseOrdersCreated} draft PO(s) created` : r.error, r.ok ? 'ok' : 'err'); };
   const drafts = db.pos.filter((p) => p.status === 'Draft');
   const rest = db.pos.filter((p) => p.status !== 'Draft').slice().reverse();
   return (
     <Screen>
       <H1>Purchasing, Reorder & Purchase Orders</H1>
-      <Card title="Dynamic reorder settings (7-day moving average)">
+      <Card title="Dynamic reorder settings (7-day moving average)" right={<Btn small title="Recalculate & Generate Draft POs" onPress={recalc} />}>
         <Muted>ReorderThreshold = ceil(SalesVelocity × 7-day lead time) + 2 safety units. It recalculates after every sale.</Muted>
         <Table head={['Variant', 'SKU', 'Stock', 'Velocity (units/day)', 'Reorder threshold', 'Status']} widths={[2.2, 1, 0.6, 1.2, 1.1, 0.8]}
           rows={db.variants.map((v) => [variantLabel(db, v), v.sku, String(v.stock), velocityOf(v).toFixed(2), String(thresholdOf(v)), isLow(v) ? <Badge text="REORDER" tone="warn" /> : <Badge text="OK" tone="ok" />])} />
@@ -65,10 +73,10 @@ export default function AdminPurchasing() {
       <Card title="Staff Purchase Requisitions">
         {db.requisitions.length === 0 && <Muted>No requisitions.</Muted>}
         {db.requisitions.slice().reverse().map((r) => {
-          const v = db.variants.find((x) => x.id === r.variantId)!;
+          const v = db.variants.find((x) => x.id === r.variantId);
           return (
             <View key={r.id} style={{ gap: 6, borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 10 }}>
-              <Row style={{ alignItems: 'center' }}><T bold>{r.id}</T><StatusBadge s={r.status} /><T>{r.qty} × {v.sku}</T><Muted>by {r.requestedBy} — {r.reason}</Muted></Row>
+              <Row style={{ alignItems: 'center' }}><T bold>{r.id}</T><StatusBadge s={r.status} /><T>{r.qty} × {v?.sku ?? r.sku ?? '?'}</T><Muted>by {r.requestedBy} — {r.reason}</Muted></Row>
               {r.status === 'Pending' && (<>
                 <Row style={{ alignItems: 'center' }}>{db.suppliers.map((s) => <Btn key={s.id} small kind={(sup[r.id] ?? db.suppliers[0]?.id) === s.id ? 'primary' : 'ghost'} title={s.name} onPress={() => setSup({ ...sup, [r.id]: s.id })} />)}</Row>
                 <Row><Btn small kind="ok" title="Approve → create PO" onPress={() => decide(r.id, true)} testID={`req-approve-${r.id}`} /><Btn small kind="danger" title="Decline" onPress={() => decide(r.id, false)} /></Row>

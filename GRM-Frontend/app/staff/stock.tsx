@@ -6,21 +6,23 @@ import { Screen, Card, H1, Muted, Btn, Row, Field, Chips, Table, Badge, T } from
 export const VariantPicker = ({ value, onChange }: { value: string; onChange: (id: string) => void }) => {
   const { db } = useSystem();
   const ids = db.variants.map((v) => v.id);
+  const selected = db.variants.find((v) => v.id === value);
   return (
     <View style={{ gap: 4 }}>
       <Chips options={ids as readonly string[]} value={value} onChange={onChange} label="Variant (tap SKU)" />
-      <Muted>{value ? `${variantLabel(db, db.variants.find((v) => v.id === value)!)} · SKU ${db.variants.find((v) => v.id === value)!.sku} · stock ${db.variants.find((v) => v.id === value)!.stock}` : 'None selected'}</Muted>
+      <Muted>{selected ? `${variantLabel(db, selected)} · SKU ${selected.sku} · stock ${selected.stock}` : 'None selected'}</Muted>
     </View>
   );
 };
 export function SkuChips({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const { db } = useSystem();
+  const selected = db.variants.find((x) => x.id === value);
   return (
     <View style={{ gap: 4 }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
         {db.variants.map((v) => <Btn key={v.id} small kind={value === v.id ? 'primary' : 'ghost'} title={v.sku} onPress={() => onChange(v.id)} testID={`sku-${v.sku}`} />)}
       </View>
-      <Muted>{value ? (() => { const v = db.variants.find((x) => x.id === value)!; return `${variantLabel(db, v)} · stock ${v.stock}`; })() : 'Select a variant SKU'}</Muted>
+      <Muted>{selected ? `${variantLabel(db, selected)} · stock ${selected.stock}` : 'Select a variant SKU'}</Muted>
     </View>
   );
 }
@@ -34,8 +36,8 @@ export default function StockLog() {
   const [qty, setQty] = useState('1');
   const [reason, setReason] = useState('Damaged Unit');
   const [other, setOther] = useState('');
-  const submit = () => {
-    const r = logStock({ variantId: vid, type, qty: Number(qty), reason: other.trim() ? `${reason}: ${other.trim()}` : reason });
+  const submit = async () => {
+    const r = await logStock({ variantId: vid, type, qty: Number(qty), reason: other.trim() ? `${reason}: ${other.trim()}` : reason });
     if (r.ok) { flash(`${type} logged`); setOther(''); } else flash(r.error, 'err');
   };
   return (

@@ -8,7 +8,7 @@ export default function MyOrders() {
   const { db, user, cancelOrder, flash } = useSystem();
   const router = useRouter();
   const mine = db.orders.filter((o) => o.customerId === user?.id).slice().reverse();
-  const cancel = (id: string) => { const r = cancelOrder(id); flash(r.ok ? `Order ${id} cancelled — stock restored` : r.error, r.ok ? 'ok' : 'err'); };
+  const cancel = async (id: string) => { const r = await cancelOrder(id); flash(r.ok ? `Order ${id} cancelled — stock restored` : r.error, r.ok ? 'ok' : 'err'); };
   return (
     <Screen max={950}>
       <H1>My Orders & Invoices</H1>

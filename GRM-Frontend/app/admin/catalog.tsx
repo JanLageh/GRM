@@ -7,17 +7,17 @@ const CATS = ['Smart Locks', 'Solar Panels', 'Batteries'] as const;
 
 function VariantRow({ id }: { id: string }) {
   const { db, saveVariant, flash } = useSystem();
-  const v = db.variants.find((x) => x.id === id)!;
-  const [price, setPrice] = useState(String(v.price));
-  const [sku, setSku] = useState(v.sku);
-  const save = (patch: object = {}) => { const r = saveVariant({ ...v, sku, price: Number(price), ...patch }); flash(r.ok ? `${sku} saved` : r.error, r.ok ? 'ok' : 'err'); };
+  const v = db.variants.find((x) => x.id === id);
+  const [price, setPrice] = useState(String(v?.price ?? '0'));
+  const [sku, setSku] = useState(v?.sku ?? '');
+  if (!v) return null;
+  const save = async (patch: object = {}) => { const r = await saveVariant({ ...v, sku, price: Number(price), ...patch }); flash(r.ok ? `${sku} saved` : r.error, r.ok ? 'ok' : 'err'); };
   return (
     <Row style={{ alignItems: 'flex-end', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 8 }}>
       <View style={{ minWidth: 130 }}><T bold>{v.name}</T><Muted>Stock {v.stock}</Muted></View>
       <Field label="SKU" value={sku} onChangeText={setSku} />
       <Field label="Price (₱)" value={price} onChangeText={setPrice} keyboardType="numeric" />
       <Btn small title="Save" onPress={() => save()} />
-      <Btn small kind={v.active ? 'ghost' : 'ok'} title={v.active ? 'Deactivate' : 'Activate'} onPress={() => save({ active: !v.active })} />
     </Row>
   );
 }
@@ -25,12 +25,12 @@ function VariantRow({ id }: { id: string }) {
 function ProductBlock({ p }: { p: Product }) {
   const { db, saveVariant, saveProduct, flash } = useSystem();
   const [nv, setNv] = useState({ name: '', sku: '', price: '', stock: '0' });
-  const add = () => {
-    const r = saveVariant({ productId: p.id, name: nv.name, sku: nv.sku, price: Number(nv.price), stock: Number(nv.stock) || 0 });
+  const add = async () => {
+    const r = await saveVariant({ productId: p.id, name: nv.name, sku: nv.sku, price: Number(nv.price), stock: Number(nv.stock) || 0 });
     if (r.ok) { flash('Variant added'); setNv({ name: '', sku: '', price: '', stock: '0' }); } else flash(r.error, 'err');
   };
   return (
-    <Card title={p.name} right={<Row style={{ alignItems: 'center' }}><Badge text={p.category} /><Btn small kind="ghost" title={p.active ? 'Deactivate product' : 'Activate'} onPress={() => saveProduct({ ...p, active: !p.active })} /></Row>}>
+    <Card title={p.name} right={<Row style={{ alignItems: 'center' }}><Badge text={p.category} /><Btn small kind="ghost" title={p.active ? 'Deactivate product' : 'Activate'} onPress={async () => { const r = await saveProduct({ ...p, active: !p.active }); flash(r.ok ? `${p.name} updated` : r.error, r.ok ? 'ok' : 'err'); }} /></Row>}>
       {db.variants.filter((v) => v.productId === p.id).map((v) => <VariantRow key={v.id + v.price + v.sku + v.active} id={v.id} />)}
       <Row style={{ borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 8 }}>
         <Field label="New variant name" value={nv.name} onChangeText={(t) => setNv({ ...nv, name: t })} />
@@ -44,11 +44,11 @@ function ProductBlock({ p }: { p: Product }) {
 }
 
 function BundleBlock({ b }: { b: Bundle }) {
-  const { db, saveBundle, flash } = useSystem();
+  const { db, saveBundle, deleteBundle, flash } = useSystem();
   const [price, setPrice] = useState(String(b.price));
   const [vid, setVid] = useState('');
   const [qty, setQty] = useState('1');
-  const save = (patch: Partial<Bundle>) => { const r = saveBundle({ ...b, price: Number(price), ...patch }); flash(r.ok ? `${b.sku} saved` : r.error, r.ok ? 'ok' : 'err'); };
+  const save = async (patch: Partial<Bundle>) => { const r = await saveBundle({ ...b, price: Number(price), ...patch }); flash(r.ok ? `${b.sku} saved` : r.error, r.ok ? 'ok' : 'err'); };
   const addComp = () => {
     if (!vid) return flash('Pick a component SKU', 'err');
     const comps = b.components.filter((c) => c.variantId !== vid).concat({ variantId: vid, qty: Number(qty) || 1 });
@@ -59,7 +59,7 @@ function BundleBlock({ b }: { b: Bundle }) {
       <Row>
         <Field label="Bundle price (₱)" value={price} onChangeText={setPrice} keyboardType="numeric" />
         <Btn small title="Save price" onPress={() => save({})} />
-        <Btn small kind={b.active ? 'ghost' : 'ok'} title={b.active ? 'Deactivate' : 'Activate'} onPress={() => save({ active: !b.active })} />
+        <Btn small kind="danger" title="Delete Bundle" onPress={async () => { const r = await deleteBundle(b.id); flash(r.ok ? `${b.sku} deleted` : r.error, r.ok ? 'ok' : 'err'); }} />
       </Row>
       <Muted>Component mapping (deducted from variant stock on sale):</Muted>
       {b.components.map((c) => {
@@ -79,10 +79,10 @@ export default function AdminCatalog() {
   const [np, setNp] = useState({ name: '', description: '' });
   const [cat, setCat] = useState<(typeof CATS)[number]>('Smart Locks');
   const [nb, setNb] = useState({ name: '', sku: '', price: '' });
-  const addP = () => { const r = saveProduct({ name: np.name, category: cat, description: np.description }); if (r.ok) { flash('Product added'); setNp({ name: '', description: '' }); } else flash(r.error, 'err'); };
-  const addB = () => {
+  const addP = async () => { const r = await saveProduct({ name: np.name, category: cat, description: np.description }); if (r.ok) { flash('Product added'); setNp({ name: '', description: '' }); } else flash(r.error, 'err'); };
+  const addB = async () => {
     const first = db.variants.find((v) => v.active);
-    const r = saveBundle({ name: nb.name, sku: nb.sku, price: Number(nb.price), components: first ? [{ variantId: first.id, qty: 1 }] : [] });
+    const r = await saveBundle({ name: nb.name, sku: nb.sku || 'BND-NEW', price: Number(nb.price), components: first ? [{ variantId: first.id, qty: 1 }] : [] });
     if (r.ok) { flash('Bundle created — edit its components below'); setNb({ name: '', sku: '', price: '' }); } else flash(r.error, 'err');
   };
   return (

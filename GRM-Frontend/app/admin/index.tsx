@@ -4,16 +4,20 @@ import { useSystem, peso, variantLabel, velocityOf, thresholdOf, isLow } from '.
 import { Screen, H1, Card, Kpi, Row, Table, Btn, Muted } from '../../components/ui';
 
 export default function AdminDashboard() {
-  const { db, resetDemo, flash } = useSystem();
+  const { db, recalculateReorder, flash } = useSystem();
   const router = useRouter();
   const revenue = db.invoices.filter((i) => i.status === 'Paid').reduce((a, i) => a + i.amount, 0);
   const active = db.orders.filter((o) => o.status === 'Pending' || o.status === 'Processing').length;
   const reqs = db.requisitions.filter((r) => r.status === 'Pending').length;
   const drafts = db.pos.filter((p) => p.status === 'Draft').length;
   const low = db.variants.filter((v) => v.active && isLow(v));
+  const recalc = async () => {
+    const r = await recalculateReorder();
+    flash(r.ok ? `Reorder recalculated (${r.data.draftPurchaseOrdersCreated} draft POs created)` : r.error, r.ok ? 'ok' : 'err');
+  };
   return (
     <Screen>
-      <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}><H1>Executive Dashboard</H1><Btn small kind="ghost" title="Reset demo data" onPress={() => { resetDemo(); flash('Demo data reset'); }} /></Row>
+      <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}><H1>Executive Dashboard</H1><Btn small kind="ghost" title="Recalculate Reorder" onPress={recalc} /></Row>
       <Row style={{ alignItems: 'stretch' }}>
         <Kpi label="Total revenue (paid)" value={peso(revenue)} tone="ok" />
         <Kpi label="Active orders" value={String(active)} />

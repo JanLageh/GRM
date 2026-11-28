@@ -6,8 +6,8 @@ import { Screen, Card, H1, Muted, T, Field, Btn, Row } from '../components/ui';
 export default function About() {
   const { submitInquiry, flash } = useSystem();
   const [f, setF] = useState({ name: '', email: '', message: '' });
-  const send = () => {
-    const r = submitInquiry(f);
+  const send = async () => {
+    const r = await submitInquiry(f);
     if (r.ok) { flash('Inquiry sent. We will reply by email.'); setF({ name: '', email: '', message: '' }); } else flash(r.error, 'err');
   };
   return (

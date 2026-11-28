@@ -519,6 +519,29 @@ public class PurchaseOrdersController : ControllerBase
         return Ok(ToDto(loaded));
     }
 
+    // DELETE /api/purchase-orders/{id}  — Admin: discard a Draft PO
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var po = await _context.PurchaseOrders
+            .Include(p => p.Items)
+            .FirstOrDefaultAsync(p => p.Id == id);
+        if (po == null)
+            return NotFound(new MessageResponse { Message = "Purchase order not found." });
+
+        if (po.Status != PurchaseOrderStatus.Draft)
+            return BadRequest(new MessageResponse { Message = "Only Draft purchase orders can be discarded." });
+
+        _context.PurchaseOrders.Remove(po);
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
     // GET /api/purchase-orders/{id}/pdf  — Admin: printable version
     [HttpGet("{id:int}/pdf")]
     [Authorize(Roles = "Admin")]

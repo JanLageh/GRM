@@ -11,7 +11,7 @@ namespace GRM_Backend.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize(Roles = "Admin")]
+[Authorize]
 public class UsersController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -40,8 +40,9 @@ public class UsersController : ControllerBase
         UpdatedAt = u.UpdatedAt
     };
 
-    // GET /api/users?role=  — Admin: list staff and customers
+    // GET /api/users?role=  — Admin (all), Staff (active Customers only)
     [HttpGet]
+    [Authorize(Roles = "Staff,Admin")]
     [ProducesResponseType(typeof(List<AdminUserDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
         [FromQuery] string? role,
@@ -50,14 +51,21 @@ public class UsersController : ControllerBase
     {
         var query = _context.Users.AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(role))
+        if (!User.IsInRole("Admin"))
         {
-            var r = role.Trim().ToLowerInvariant();
-            query = query.Where(u => u.Role.ToLower() == r);
+            query = query.Where(u => u.Role == "Customer" && u.IsActive);
         }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(role))
+            {
+                var r = role.Trim().ToLowerInvariant();
+                query = query.Where(u => u.Role.ToLower() == r);
+            }
 
-        if (isActive.HasValue)
-            query = query.Where(u => u.IsActive == isActive.Value);
+            if (isActive.HasValue)
+                query = query.Where(u => u.IsActive == isActive.Value);
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -74,6 +82,7 @@ public class UsersController : ControllerBase
 
     // GET /api/users/{id}  — Admin: view user details
     [HttpGet("{id:int}")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(AdminUserDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(int id)
@@ -87,6 +96,7 @@ public class UsersController : ControllerBase
 
     // POST /api/users  — Admin: create a staff (or customer) account
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(AdminUserDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status409Conflict)]
@@ -137,6 +147,7 @@ public class UsersController : ControllerBase
 
     // PATCH /api/users/{id}/status  — Admin: activate or deactivate a user account
     [HttpPatch("{id:int}/status")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(AdminUserDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

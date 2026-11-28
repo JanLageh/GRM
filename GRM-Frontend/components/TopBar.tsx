@@ -48,23 +48,23 @@ export default function TopBar() {
           <Pressable
             onPress={async () => {
               const ok = await syncWithBackend();
-              flash(ok ? 'Synced with GRM-Backend (localhost:5133)' : 'GRM-Backend offline — running on local fallback store', ok ? 'ok' : 'err');
+              flash(ok ? 'Synced with GRM-Backend' : 'GRM-Backend offline', ok ? 'ok' : 'err');
             }}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               gap: 6,
-              backgroundColor: apiOnline ? '#ECFDF5' : '#FFFBEB',
+              backgroundColor: apiOnline ? '#ECFDF5' : '#FEF2F2',
               borderWidth: 1,
-              borderColor: apiOnline ? '#A7F3D0' : '#FDE68A',
+              borderColor: apiOnline ? '#A7F3D0' : '#FECACA',
               borderRadius: 999,
               paddingHorizontal: 10,
               paddingVertical: 5,
             }}
           >
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: apiOnline ? C.ok : C.warn }} />
-            <Text style={{ fontSize: 11, fontWeight: '700', color: apiOnline ? '#065F46' : '#92400E' }}>
-              {apiOnline ? 'API: 5133 Connected' : 'API: Local Fallback'}
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: apiOnline ? C.ok : C.err }} />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: apiOnline ? '#065F46' : '#991B1B' }}>
+              {apiOnline ? 'API: Connected' : 'API: Offline'}
             </Text>
           </Pressable>
 
@@ -74,7 +74,7 @@ export default function TopBar() {
             </Pressable>
           )}
           {user ? (
-            <Pressable onPress={() => { logout(); router.replace('/'); }} style={{ borderWidth: 1, borderColor: C.ink, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Pressable onPress={async () => { await logout(); router.replace('/'); }} style={{ borderWidth: 1, borderColor: C.ink, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
               <Text style={{ fontSize: 12, fontWeight: '700' }}>{user.name.split(' ')[0]} · Log out</Text>
             </Pressable>
           ) : (

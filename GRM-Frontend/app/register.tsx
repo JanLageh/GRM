@@ -8,8 +8,13 @@ export default function Register() {
   const router = useRouter();
   const [f, setF] = useState({ name: '', email: '', password: '', phone: '' });
   const [err, setErr] = useState('');
-  const submit = () => {
-    const r = register(f);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (busy) return;
+    setErr('');
+    setBusy(true);
+    const r = await register(f);
+    setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
     flash('Account created — welcome!');
     router.replace('/cart');

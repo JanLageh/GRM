@@ -12,7 +12,20 @@ import {
   grmApi,
   setApiToken,
   API_BASE_URL,
+  ApiBundleDto,
+  ApiCartDto,
+  ApiContactInquiryDto,
+  ApiInventoryItemDto,
+  ApiInvoiceDto,
+  ApiOrderDto,
+  ApiProductDto,
+  ApiPurchaseOrderDto,
   ApiQuotationDto,
+  ApiReorderSuggestionDto,
+  ApiRequisitionDto,
+  ApiStockMovementDto,
+  ApiSupplierDto,
+  ApiUserDto,
 } from '../services/grmApi';
 
 /* ============================== TYPES ============================== */
@@ -22,14 +35,21 @@ export type Payment = 'Cash on Delivery' | 'Manual Bank Transfer' | 'Cash (Walk-
 export type OrderStatus = 'Pending' | 'Processing' | 'Completed' | 'Cancelled';
 export type InvoiceStatus = 'Unpaid' | 'Paid' | 'Voided';
 export type POStatus = 'Draft' | 'Approved' | 'Sent' | 'Received';
-export type MoveType = 'Sale' | 'Stock-In' | 'Stock-Out' | 'Adjustment' | 'Receiving' | 'Cancel-Restock';
+export type MoveType =
+  | 'Sale'
+  | 'Stock-In'
+  | 'Stock-Out'
+  | 'Adjustment'
+  | 'Receiving'
+  | 'Cancel-Restock';
 
 export interface User {
   id: string;
-  backendId?: number;
+  backendId: number;
+  username?: string;
   name: string;
   email: string;
-  password: string;
+  password?: string;
   phone: string;
   address: string;
   role: Exclude<Role, 'Guest'>;
@@ -37,21 +57,26 @@ export interface User {
 }
 export interface Product {
   id: string;
-  backendId?: number;
+  backendId: number;
   name: string;
   category: Exclude<Category, 'Solar Bundles'>;
   description: string;
+  imageUrl?: string | null;
+  isFeatured?: boolean;
   active: boolean;
 }
 export interface Variant {
   id: string;
-  backendId?: number;
+  backendId: number;
   productId: string;
   name: string;
   sku: string;
   price: number;
   stock: number;
   dailySales: number[];
+  reorderThreshold?: number;
+  salesVelocity?: number;
+  imageUrl?: string | null;
   active: boolean;
 }
 export interface BundleComponent {
@@ -60,11 +85,13 @@ export interface BundleComponent {
 }
 export interface Bundle {
   id: string;
-  backendId?: number;
+  backendId: number;
   name: string;
   sku: string;
   description: string;
   price: number;
+  imageUrl?: string | null;
+  availableStock?: number;
   active: boolean;
   components: BundleComponent[];
 }
@@ -80,13 +107,14 @@ export interface LineItem extends CartItem {
 }
 export interface Quotation {
   id: string;
-  backendId?: number;
+  backendId: number;
   customerId: string | null;
   customerName: string;
   lines: LineItem[];
   discountPercent: number;
-  status: 'Requested' | 'Quoted' | 'Accepted' | 'Declined';
+  status: 'Requested' | 'Quoted' | 'Accepted' | 'Converted' | 'Declined';
   validUntil: string | null;
+  isExpired?: boolean;
   note: string;
   createdAt: string;
   preparedBy: string | null;
@@ -94,6 +122,7 @@ export interface Quotation {
 }
 export interface Order {
   id: string;
+  backendId: number;
   customerId: string | null;
   customerName: string;
   channel: 'Online' | 'WalkIn';
@@ -110,6 +139,7 @@ export interface Order {
 }
 export interface Invoice {
   id: string;
+  backendId: number;
   orderId: string;
   amount: number;
   status: InvoiceStatus;
@@ -121,6 +151,7 @@ export interface Invoice {
 export interface Movement {
   id: string;
   variantId: string;
+  sku?: string;
   type: MoveType;
   qty: number;
   reason: string;
@@ -130,13 +161,18 @@ export interface Movement {
 }
 export interface Supplier {
   id: string;
+  backendId: number;
   name: string;
   contact: string;
   phone: string;
 }
 export interface Requisition {
   id: string;
+  backendId: number;
   variantId: string;
+  sku?: string;
+  productName?: string;
+  model?: string;
   qty: number;
   reason: string;
   requestedBy: string;
@@ -146,12 +182,18 @@ export interface Requisition {
 }
 export interface POLine {
   variantId: string;
+  sku?: string;
+  productName?: string;
+  model?: string;
   qty: number;
   received: number;
 }
 export interface PurchaseOrder {
   id: string;
+  backendId: number;
+  poNumber?: string;
   supplierId: string | null;
+  supplierName?: string | null;
   lines: POLine[];
   status: POStatus;
   source: 'System' | 'Requisition' | 'Admin';
@@ -166,14 +208,10 @@ export interface Inquiry {
   at: string;
 }
 export interface DB {
-  v: number;
-  seq: number;
-  session: { userId: string | null; token: string | null };
   users: User[];
   products: Product[];
   variants: Variant[];
   bundles: Bundle[];
-  carts: Record<string, CartItem[]>;
   quotations: Quotation[];
   orders: Order[];
   invoices: Invoice[];
@@ -182,7 +220,7 @@ export interface DB {
   requisitions: Requisition[];
   pos: PurchaseOrder[];
   inquiries: Inquiry[];
-  settings: { maxStaffDiscountPercent: number };
+  settings: { maxStaffDiscountPercent: number; defaultQuotationValidityDays?: number };
 }
 export type Res<T = any> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -197,6 +235,8 @@ export interface Listing {
   low: boolean;
   category: Category;
   desc: string;
+  isFeatured?: boolean;
+  imageUrl?: string | null;
 }
 
 /* ============================== HELPERS ============================== */
@@ -209,46 +249,51 @@ export const peso = (n: number) =>
 export const fmtDate = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleDateString('en-PH', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
     : '—';
 export const fmtDT = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleString('en-PH', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
     : '—';
-const LEAD_DAYS = 7;
-const SAFETY = 2;
-export const velocityOf = (v: Variant) =>
-  v.dailySales.reduce((a, b) => a + b, 0) / v.dailySales.length;
-export const thresholdOf = (v: Variant) =>
-  Math.ceil(velocityOf(v) * LEAD_DAYS) + SAFETY;
-export const isLow = (v: Variant) => v.stock <= thresholdOf(v);
-const nowISO = () => new Date().toISOString();
-const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
-const nid = (d: DB, p: string) => `${p}-${1000 + ++d.seq}`;
-const b64 = (s: string) => (typeof btoa !== 'undefined' ? btoa(s) : s);
 
-export const variantLabel = (d: DB, v: Variant) =>
-  `${d.products.find((p) => p.id === v.productId)?.name ?? '?'} — ${v.name}`;
-export const bundleAvailable = (d: DB, b: Bundle) =>
-  b.components.length === 0
+export const velocityOf = (v: Variant) => {
+  if (v.salesVelocity !== undefined) return v.salesVelocity;
+  if (!v.dailySales.length) return 0;
+  return v.dailySales.reduce((a, b) => a + b, 0) / v.dailySales.length;
+};
+export const thresholdOf = (v: Variant) => v.reorderThreshold ?? 5;
+export const isLow = (v: Variant) => v.stock <= thresholdOf(v);
+
+export const variantLabel = (d: DB, v?: Variant | null) =>
+  v
+    ? `${d.products.find((p) => p.id === v.productId)?.name ?? '?'} — ${v.name}`
+    : '?';
+
+export const bundleAvailable = (d: DB, b: Bundle) => {
+  if (b.availableStock !== undefined) return b.availableStock;
+  return b.components.length === 0
     ? 0
     : Math.min(
-      ...b.components.map((c) =>
-        Math.floor(
-          (d.variants.find((v) => v.id === c.variantId)?.stock ?? 0) / c.qty
+        ...b.components.map((c) =>
+          Math.floor(
+            (d.variants.find((v) => v.id === c.variantId)?.stock ?? 0) / c.qty
+          )
         )
-      )
-    );
+      );
+};
+
 export const isExpired = (q: Quotation) =>
-  q.status === 'Quoted' &&
-  !!q.validUntil &&
-  new Date(q.validUntil).getTime() < Date.now();
+  Boolean(q.isExpired) ||
+  (q.status === 'Quoted' &&
+    !!q.validUntil &&
+    new Date(q.validUntil).getTime() < Date.now());
+
 export const totals = (
   lines: { unitPrice: number; qty: number }[],
   pct: number
@@ -274,6 +319,8 @@ export function buildListings(d: DB, includeInactive = false): Listing[] {
       low: isLow(v),
       category: p.category,
       desc: p.description,
+      isFeatured: p.isFeatured,
+      imageUrl: v.imageUrl ?? p.imageUrl,
     });
   }
   for (const b of d.bundles) {
@@ -290,362 +337,418 @@ export function buildListings(d: DB, includeInactive = false): Listing[] {
       low: a <= 2,
       category: 'Solar Bundles',
       desc: b.description,
+      imageUrl: b.imageUrl,
     });
   }
   return out;
 }
 
-/* ============================== SEED ============================== */
-function seed(): DB {
-  const d: DB = {
-    v: 1,
-    seq: 20,
-    session: { userId: null, token: null },
-    users: [
-      {
-        id: 'U-1',
-        backendId: 1,
-        name: 'Garry (Owner)',
-        email: 'admin@garry.ph',
-        password: 'admin123',
-        phone: '0917 100 0001',
-        address: 'Mahayahay, Bankal, Lapu-Lapu City',
-        role: 'Admin',
-        active: true,
-      },
-      {
-        id: 'U-2',
-        backendId: 2,
-        name: 'Liza Staff',
-        email: 'staff@garry.ph',
-        password: 'staff123',
-        phone: '0917 100 0002',
-        address: 'Lapu-Lapu City',
-        role: 'Staff',
-        active: true,
-      },
-      {
-        id: 'U-3',
-        backendId: 3,
-        name: 'Maria Santos',
-        email: 'customer@garry.ph',
-        password: 'customer123',
-        phone: '0917 100 0003',
-        address: 'Pajo, Lapu-Lapu City',
-        role: 'Customer',
-        active: true,
-      },
-    ],
-    products: [
-      {
-        id: 'P-1',
-        backendId: 1,
-        name: 'Garry SmartLock',
-        category: 'Smart Locks',
-        description: 'Keyless smart door lock with app-free access control.',
-        active: true,
-      },
-      {
-        id: 'P-2',
-        backendId: 2,
-        name: 'Monocrystalline Solar Panel Set',
-        category: 'Solar Panels',
-        description: 'High-efficiency mono PERC solar panel sets.',
-        active: true,
-      },
-      {
-        id: 'P-3',
-        backendId: 3,
-        name: 'LiFePO4 Solar Battery',
-        category: 'Batteries',
-        description: 'Wall-mount lithium iron phosphate storage battery.',
-        active: true,
-      },
-    ],
-    variants: [
-      { id: 'V-1', backendId: 1, productId: 'P-1', name: 'PIN Keypad', sku: 'SL-PIN-01', price: 5990, stock: 24, dailySales: [2, 1, 3, 2, 1, 2, 2], active: true },
-      { id: 'V-2', backendId: 2, productId: 'P-1', name: 'Biometric', sku: 'SL-BIO-01', price: 9490, stock: 12, dailySales: [1, 1, 0, 1, 1, 1, 1], active: true },
-      { id: 'V-3', backendId: 3, productId: 'P-1', name: 'Card + PIN', sku: 'SL-CRD-01', price: 7250, stock: 9, dailySales: [0, 0, 0, 0, 0, 0, 0], active: true },
-      { id: 'V-4', backendId: 4, productId: 'P-2', name: 'Small (2 kW)', sku: 'SP-S-02', price: 18500, stock: 15, dailySales: [1, 0, 1, 1, 0, 1, 1], active: true },
-      { id: 'V-5', backendId: 5, productId: 'P-2', name: 'Medium (4 kW)', sku: 'SP-M-04', price: 34900, stock: 10, dailySales: [1, 1, 0, 1, 1, 0, 1], active: true },
-      { id: 'V-6', backendId: 6, productId: 'P-2', name: 'Large (7 kW)', sku: 'SP-L-07', price: 62000, stock: 6, dailySales: [0, 1, 0, 0, 1, 0, 1], active: true },
-      { id: 'V-7', backendId: 7, productId: 'P-3', name: '5 kWh', sku: 'BT-05', price: 48000, stock: 8, dailySales: [1, 0, 1, 0, 1, 0, 1], active: true },
-      { id: 'V-8', backendId: 8, productId: 'P-3', name: '10 kWh', sku: 'BT-10', price: 89000, stock: 5, dailySales: [0, 1, 0, 1, 0, 0, 1], active: true },
-    ],
-    bundles: [
-      { id: 'B-1', backendId: 1, name: 'Small Solar + Battery Kit', sku: 'BND-SMALL', description: '2 kW panel set with a 5 kWh battery.', price: 62000, active: true, components: [{ variantId: 'V-4', qty: 1 }, { variantId: 'V-7', qty: 1 }] },
-      { id: 'B-2', backendId: 2, name: 'Medium Solar + Battery Kit', sku: 'BND-MEDIUM', description: '4 kW panel set with a 10 kWh battery.', price: 119000, active: true, components: [{ variantId: 'V-5', qty: 1 }, { variantId: 'V-8', qty: 1 }] },
-      { id: 'B-3', backendId: 3, name: 'Large Solar + Battery Kit', sku: 'BND-LARGE', description: '7 kW panel set with two 10 kWh batteries.', price: 225000, active: true, components: [{ variantId: 'V-6', qty: 1 }, { variantId: 'V-8', qty: 2 }] },
-    ],
-    carts: { guest: [] },
+/* ============================== STORAGE KEYS ============================== */
+// Only the Guest role cart and the JWT token are stored in localStorage.
+const GUEST_CART_KEY = 'grm-guest-cart-v1';
+const AUTH_TOKEN_KEY = 'grm-auth-token-v1';
+
+function readGuestCart(): CartItem[] {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(GUEST_CART_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (i) =>
+              (i?.kind === 'variant' || i?.kind === 'bundle') &&
+              typeof i?.refId === 'string' &&
+              typeof i?.qty === 'number' &&
+              i.qty > 0
+          );
+        }
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return [];
+}
+
+function writeGuestCart(items: CartItem[]) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(GUEST_CART_KEY, JSON.stringify(items));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function readStoredToken(): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeStoredToken(token: string | null) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+      else localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function emptyDB(): DB {
+  return {
+    users: [],
+    products: [],
+    variants: [],
+    bundles: [],
     quotations: [],
     orders: [],
     invoices: [],
     movements: [],
-    suppliers: [
-      { id: 'S-1', name: 'SunBridge Solar Supply (Cebu)', contact: 'Ramon Uy', phone: '032 255 0101' },
-      { id: 'S-2', name: 'SecureHome Distributors', contact: 'Ana Reyes', phone: '032 255 0202' },
-    ],
+    suppliers: [],
     requisitions: [],
     pos: [],
     inquiries: [],
-    settings: { maxStaffDiscountPercent: 10 },
+    settings: { maxStaffDiscountPercent: 15, defaultQuotationValidityDays: 7 },
   };
-  const hist = new Date(Date.now() - 3 * 86400000).toISOString();
-  d.orders.push({
-    id: 'ORD-1001',
-    customerId: 'U-3',
-    customerName: 'Maria Santos',
-    channel: 'Online',
-    discountPercent: 0,
-    subtotal: 11980,
-    total: 11980,
-    status: 'Completed',
-    payment: 'Cash on Delivery',
-    address: 'Pajo, Lapu-Lapu City',
-    createdAt: hist,
-    quotationId: null,
-    invoiceId: 'INV-1001',
-    lines: [
-      {
-        kind: 'variant',
-        refId: 'V-1',
-        name: 'Garry SmartLock — PIN Keypad',
-        sku: 'SL-PIN-01',
-        unitPrice: 5990,
-        qty: 2,
-      },
-    ],
-  });
-  d.invoices.push({
-    id: 'INV-1001',
-    orderId: 'ORD-1001',
-    amount: 11980,
-    status: 'Paid',
-    issuedAt: hist,
-    paidAt: hist,
-    voidReason: null,
-    payment: 'Cash on Delivery',
-  });
-  d.movements.push({
-    id: 'MV-1001',
-    variantId: 'V-1',
-    type: 'Sale',
-    qty: -2,
-    reason: 'Sale ORD-1001',
-    ref: 'ORD-1001',
-    by: 'System',
-    at: hist,
-  });
-  syncDrafts(d);
-  return d;
 }
 
-/* ============================== DOMAIN RULES ============================== */
-function suggestedQty(v: Variant) {
-  return Math.max(Math.ceil(velocityOf(v) * 21) + SAFETY - v.stock, 5);
+/* ============================== MAPPERS ============================== */
+function mapRole(role: string): Exclude<Role, 'Guest'> {
+  if (role === 'Admin') return 'Admin';
+  if (role === 'Staff') return 'Staff';
+  return 'Customer';
 }
-function syncDrafts(d: DB) {
-  for (const v of d.variants) {
-    if (!v.active || !isLow(v)) continue;
-    const open = d.pos.some(
-      (p) =>
-        p.status !== 'Received' &&
-        p.lines.some((l) => l.variantId === v.id && l.received < l.qty)
-    );
-    if (open) continue;
-    d.pos.push({
-      id: nid(d, 'PO'),
-      supplierId: d.suppliers[0]?.id ?? null,
-      status: 'Draft',
-      source: 'System',
-      createdAt: nowISO(),
-      note: `Auto-generated: ${v.sku} stock ${v.stock} ≤ reorder threshold ${thresholdOf(v)} (velocity ${velocityOf(v).toFixed(2)}/day)`,
-      lines: [{ variantId: v.id, qty: suggestedQty(v), received: 0 }],
-    });
+
+function mapUser(u: ApiUserDto): User {
+  return {
+    id: `U-${u.id}`,
+    backendId: u.id,
+    username: u.username,
+    name: u.fullName?.trim() || u.username,
+    email: u.email,
+    phone: u.phoneNumber ?? '',
+    address: u.address ?? '',
+    role: mapRole(u.role),
+    active: u.isActive ?? true,
+  };
+}
+
+function mapCategory(category: string): Exclude<Category, 'Solar Bundles'> {
+  if (
+    category === 'Smart Locks' ||
+    category === 'Solar Panels' ||
+    category === 'Batteries'
+  ) {
+    return category;
   }
+  return 'Smart Locks';
 }
-const cur = (d: DB) => d.users.find((u) => u.id === d.session.userId) || null;
-const roleOf = (d: DB): Role => cur(d)?.role ?? 'Guest';
-const need = (d: DB, ...r: Role[]) => {
-  if (!r.includes(roleOf(d)))
-    throw new Error(`403 Forbidden — requires ${r.join(' / ')} role`);
-};
-const who = (d: DB) => cur(d)?.name ?? 'System';
-const assertDiscount = (d: DB, pct: number) => {
-  if (!(pct >= 0 && pct <= 100))
-    throw new Error('Discount must be between 0% and 100%');
-  if (roleOf(d) === 'Staff' && pct > d.settings.maxStaffDiscountPercent)
-    throw new Error(
-      `Discount ${pct}% exceeds the Admin limit of ${d.settings.maxStaffDiscountPercent}% for Staff`
-    );
-};
-function toLines(d: DB, items: CartItem[]): LineItem[] {
-  if (!items.length) throw new Error('No items selected');
-  return items.map((i) => {
-    if (i.qty < 1) throw new Error('Quantity must be at least 1');
-    if (i.kind === 'variant') {
-      const v = d.variants.find((x) => x.id === i.refId);
-      if (!v || !v.active) throw new Error('Item is unavailable');
-      return { ...i, name: variantLabel(d, v), sku: v.sku, unitPrice: v.price };
+
+function mapPayment(method?: string | null): Payment {
+  if (method === 'Manual Bank Transfer') return 'Manual Bank Transfer';
+  if (method === 'Cash (Walk-in)') return 'Cash (Walk-in)';
+  return 'Cash on Delivery';
+}
+
+function mapCatalog(
+  apiProducts: ApiProductDto[],
+  apiBundles: ApiBundleDto[],
+  invItems: ApiInventoryItemDto[] = [],
+  reorderSuggestions: ApiReorderSuggestionDto[] = []
+): { products: Product[]; variants: Variant[]; bundles: Bundle[] } {
+  const invByVid = new Map<number, ApiInventoryItemDto>();
+  for (const item of invItems) invByVid.set(item.variantId, item);
+
+  const reorderByVid = new Map<number, ApiReorderSuggestionDto>();
+  for (const s of reorderSuggestions) reorderByVid.set(s.variantId, s);
+
+  const products: Product[] = [];
+  const variants: Variant[] = [];
+
+  for (const bp of apiProducts) {
+    const pid = `P-${bp.id}`;
+    products.push({
+      id: pid,
+      backendId: bp.id,
+      name: bp.name,
+      category: mapCategory(bp.category),
+      description: bp.description ?? '',
+      imageUrl: bp.imageUrl ?? null,
+      isFeatured: bp.isFeatured ?? false,
+      active: bp.isActive,
+    });
+
+    for (const bv of bp.variants) {
+      const inv = invByVid.get(bv.id);
+      const reo = reorderByVid.get(bv.id);
+      variants.push({
+        id: `V-${bv.id}`,
+        backendId: bv.id,
+        productId: pid,
+        name: bv.model,
+        sku: bv.sku,
+        price: Number(bv.price),
+        stock: bv.stock,
+        dailySales: [0, 0, 0, 0, 0, 0, 0],
+        reorderThreshold: reo?.effectiveThreshold ?? inv?.reorderThreshold,
+        salesVelocity: reo ? Number(reo.dailySalesVelocity) : undefined,
+        imageUrl: bv.imageUrl ?? null,
+        active: bp.isActive,
+      });
     }
-    const b = d.bundles.find((x) => x.id === i.refId);
-    if (!b || !b.active) throw new Error('Bundle is unavailable');
-    return { ...i, name: b.name, sku: b.sku, unitPrice: b.price };
-  });
+  }
+
+  const bundles: Bundle[] = apiBundles.map((bb) => ({
+    id: `B-${bb.id}`,
+    backendId: bb.id,
+    name: bb.name,
+    sku: `BND-${bb.id}`,
+    description: bb.description ?? '',
+    price: Number(bb.price),
+    imageUrl: bb.imageUrl ?? null,
+    availableStock: bb.availableStock,
+    active: true,
+    components: bb.items.map((item) => ({
+      variantId: `V-${item.variantId}`,
+      qty: item.quantity,
+    })),
+  }));
+
+  return { products, variants, bundles };
 }
-function expand(d: DB, items: CartItem[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const i of items) {
-    if (i.kind === 'variant')
-      m.set(i.refId, (m.get(i.refId) ?? 0) + i.qty);
-    else
-      for (const c of d.bundles.find((b) => b.id === i.refId)?.components ?? [])
-        m.set(c.variantId, (m.get(c.variantId) ?? 0) + c.qty * i.qty);
-  }
-  return m;
+
+function mapCart(dto: ApiCartDto): CartItem[] {
+  const items: CartItem[] = dto.items.map((i) => ({
+    kind: 'variant',
+    refId: `V-${i.variantId}`,
+    qty: i.quantity,
+  }));
+  const bundles: CartItem[] = (dto.bundles ?? []).map((b) => ({
+    kind: 'bundle',
+    refId: `B-${b.bundleId}`,
+    qty: b.quantity,
+  }));
+  return [...items, ...bundles];
 }
-function deduct(d: DB, items: CartItem[], ref: string) {
-  const m = expand(d, items);
-  for (const [id, q] of m) {
-    const v = d.variants.find((x) => x.id === id);
-    if (!v || v.stock < q)
-      throw new Error(
-        `Insufficient stock for ${v?.sku ?? id}: ${v?.stock ?? 0} available, ${q} needed`
-      );
-  }
-  for (const [id, q] of m) {
-    const v = d.variants.find((x) => x.id === id)!;
-    v.stock -= q;
-    v.dailySales[v.dailySales.length - 1] += q;
-    d.movements.push({
-      id: nid(d, 'MV'),
-      variantId: id,
-      type: 'Sale',
-      qty: -q,
-      reason: `Sale ${ref}`,
-      ref,
-      by: who(d),
-      at: nowISO(),
-    });
-  }
+
+function mapQuotationStatus(status: string): Quotation['status'] {
+  if (status === 'Draft') return 'Requested';
+  if (status === 'Sent') return 'Quoted';
+  if (status === 'Accepted') return 'Accepted';
+  if (status === 'Converted') return 'Converted';
+  if (status === 'Declined') return 'Declined';
+  return 'Requested';
 }
-function restock(d: DB, items: CartItem[], ref: string) {
-  for (const [id, q] of expand(d, items)) {
-    const v = d.variants.find((x) => x.id === id);
-    if (!v) continue;
-    v.stock += q;
-    const last = v.dailySales.length - 1;
-    v.dailySales[last] = Math.max(0, v.dailySales[last] - q);
-    d.movements.push({
-      id: nid(d, 'MV'),
-      variantId: id,
-      type: 'Cancel-Restock',
-      qty: q,
-      reason: `Cancelled ${ref}`,
-      ref,
-      by: who(d),
-      at: nowISO(),
-    });
-  }
+
+function mapQuotation(q: ApiQuotationDto, ordersByQuoteId: Map<number, number>): Quotation {
+  const convertedOrderId = ordersByQuoteId.get(q.id);
+  return {
+    id: `QT-${q.id}`,
+    backendId: q.id,
+    customerId: `U-${q.customerId}`,
+    customerName: q.customerName,
+    lines: q.items.map((i) => ({
+      kind: i.bundleId ? 'bundle' : 'variant',
+      refId: i.bundleId ? `B-${i.bundleId}` : `V-${i.variantId}`,
+      name: i.bundleName
+        ? `${i.bundleName} (${i.productName} — ${i.model})`
+        : `${i.productName} — ${i.model}`,
+      sku: i.sku,
+      unitPrice: Number(i.unitPrice),
+      qty: i.quantity,
+    })),
+    discountPercent: Number(q.discountPercent),
+    status: mapQuotationStatus(q.status),
+    validUntil: q.expiresAt ?? null,
+    isExpired: q.isExpired ?? false,
+    note: q.notes ?? '',
+    createdAt: q.createdAt,
+    preparedBy: q.staffName ?? null,
+    orderId: convertedOrderId ? `ORD-${convertedOrderId}` : null,
+  };
 }
-function createOrder(
-  d: DB,
-  o: {
-    customerId: string | null;
-    customerName: string;
-    channel: 'Online' | 'WalkIn';
-    lines: LineItem[];
-    discountPercent: number;
-    payment: Payment;
-    address: string;
-    status: OrderStatus;
-    quotationId?: string | null;
-  }
-): Order {
-  const id = nid(d, 'ORD');
-  deduct(d, o.lines, id);
-  const t = totals(o.lines, o.discountPercent);
-  const order: Order = {
-    id,
-    customerId: o.customerId,
+
+function mapInvoice(inv: ApiInvoiceDto): Invoice {
+  const status: InvoiceStatus = inv.isVoided
+    ? 'Voided'
+    : inv.paymentStatus === 'Paid'
+      ? 'Paid'
+      : 'Unpaid';
+  return {
+    id: inv.invoiceNumber || `INV-${inv.id}`,
+    backendId: inv.id,
+    orderId: `ORD-${inv.orderId}`,
+    amount: Number(inv.totalAmount),
+    status,
+    issuedAt: inv.issuedAt,
+    paidAt: inv.paidAt ?? null,
+    voidReason: inv.voidReason ?? null,
+    payment: mapPayment(inv.paymentMethod),
+  };
+}
+
+function mapOrder(o: ApiOrderDto, invoices: Invoice[]): Order {
+  const ordId = `ORD-${o.id}`;
+  const matchingInvoices = invoices.filter((i) => i.orderId === ordId);
+  const linkedInvoice =
+    matchingInvoices.find((i) => i.status !== 'Voided') ?? matchingInvoices[0];
+
+  const status: OrderStatus =
+    o.status === 'Processing' || o.status === 'Completed' || o.status === 'Cancelled'
+      ? o.status
+      : 'Pending';
+
+  return {
+    id: ordId,
+    backendId: o.id,
+    customerId: o.customerId ? `U-${o.customerId}` : null,
     customerName: o.customerName,
-    channel: o.channel,
-    lines: o.lines,
-    discountPercent: o.discountPercent,
-    subtotal: t.subtotal,
-    total: t.total,
-    status: o.status,
-    payment: o.payment,
-    address: o.address,
-    createdAt: nowISO(),
-    quotationId: o.quotationId ?? null,
-    invoiceId: null,
+    channel: o.channel === 'WalkIn' ? 'WalkIn' : 'Online',
+    lines: o.items.map((i) => ({
+      kind: 'variant',
+      refId: `V-${i.variantId}`,
+      name: i.bundleName
+        ? `${i.bundleName} (${i.productName} — ${i.model})`
+        : `${i.productName} — ${i.model}`,
+      sku: i.sku,
+      unitPrice: Number(i.unitPrice),
+      qty: i.quantity,
+    })),
+    discountPercent: Number(o.discountPercent),
+    subtotal: Number(o.subtotal),
+    total: Number(o.total),
+    status,
+    payment: mapPayment(o.paymentMethod),
+    address: o.shippingAddress ?? '',
+    createdAt: o.createdAt,
+    quotationId: o.quotationId ? `QT-${o.quotationId}` : null,
+    invoiceId: linkedInvoice?.id ?? null,
   };
-  d.orders.push(order);
-  return order;
 }
-function makeInvoice(d: DB, order: Order, paid: boolean): Invoice {
-  const inv: Invoice = {
-    id: nid(d, 'INV'),
-    orderId: order.id,
-    amount: order.total,
-    status: paid ? 'Paid' : 'Unpaid',
-    issuedAt: nowISO(),
-    paidAt: paid ? nowISO() : null,
-    voidReason: null,
-    payment: order.payment,
-  };
-  d.invoices.push(inv);
-  order.invoiceId = inv.id;
-  return inv;
-}
-const cartKey = (d: DB) => d.session.userId ?? 'guest';
-function makeSession(d: DB, u: User, jwtToken?: string) {
-  d.session = {
-    userId: u.id,
-    token:
-      jwtToken ||
-      `eyJhbGciOiJIUzI1NiJ9.${b64(
-        JSON.stringify({ sub: u.id, role: u.role, exp: Date.now() + 8 * 3600e3 })
-      )}.mock-signature`,
-  };
-  const g = d.carts.guest ?? [];
-  const mine = d.carts[u.id] ?? [];
-  for (const it of g) {
-    const ex = mine.find((m) => m.kind === it.kind && m.refId === it.refId);
-    if (ex) ex.qty += it.qty;
-    else mine.push({ ...it });
+
+function mapMovement(m: ApiStockMovementDto, users: User[]): Movement {
+  const reason = m.reason ?? '';
+  let type: MoveType = 'Adjustment';
+  if (m.type === 'StockOut') {
+    type =
+      reason.includes('Order') ||
+      reason.includes('order') ||
+      reason.includes('SalesOrder')
+        ? 'Sale'
+        : 'Stock-Out';
+  } else if (m.type === 'StockIn') {
+    if (reason.startsWith('Cancelled Order')) type = 'Cancel-Restock';
+    else if (reason.startsWith('Received PO')) type = 'Receiving';
+    else type = 'Stock-In';
   }
-  d.carts[u.id] = mine;
-  d.carts.guest = [];
+
+  const refMatch = reason.match(/(?:PO-\d+|Order\s+#\d+|Quotation\s+#\d+)/i);
+  const actor = m.userId
+    ? users.find((u) => u.backendId === m.userId)?.name ?? `User #${m.userId}`
+    : 'System';
+
+  return {
+    id: `MV-${m.id}`,
+    variantId: `V-${m.variantId}`,
+    sku: m.sku,
+    type,
+    qty: m.quantityChange,
+    reason,
+    ref: refMatch ? refMatch[0] : '—',
+    by: actor,
+    at: m.createdAt,
+  };
+}
+
+function mapSupplier(s: ApiSupplierDto): Supplier {
+  return {
+    id: `S-${s.id}`,
+    backendId: s.id,
+    name: s.name,
+    contact: s.contactPerson ?? '',
+    phone: s.phone ?? '',
+  };
+}
+
+function mapRequisition(r: ApiRequisitionDto): Requisition {
+  const status: Requisition['status'] =
+    r.status === 'Approved' || r.status === 'Declined' ? r.status : 'Pending';
+  return {
+    id: `PR-${r.id}`,
+    backendId: r.id,
+    variantId: `V-${r.variantId}`,
+    sku: r.sku,
+    productName: r.productName,
+    model: r.model,
+    qty: r.quantity,
+    reason: r.reason,
+    requestedBy: r.requestedByName,
+    status,
+    poId: r.poNumber ?? (r.purchaseOrderId ? `PO-${r.purchaseOrderId}` : null),
+    createdAt: r.createdAt,
+  };
+}
+
+function mapPurchaseOrder(po: ApiPurchaseOrderDto): PurchaseOrder {
+  const status: POStatus =
+    po.status === 'Approved' || po.status === 'Sent' || po.status === 'Received'
+      ? po.status
+      : 'Draft';
+  const source: PurchaseOrder['source'] =
+    po.source === 'Requisition' || po.source === 'Admin' ? po.source : 'System';
+
+  return {
+    id: po.poNumber || `PO-${po.id}`,
+    backendId: po.id,
+    poNumber: po.poNumber,
+    supplierId: po.supplierId ? `S-${po.supplierId}` : null,
+    supplierName: po.supplierName ?? null,
+    lines: po.items.map((item) => ({
+      variantId: `V-${item.variantId}`,
+      sku: item.sku,
+      productName: item.productName,
+      model: item.model,
+      qty: item.quantityOrdered,
+      received: item.quantityReceived,
+    })),
+    status,
+    source,
+    note: po.notes ?? '',
+    createdAt: po.createdAt,
+  };
+}
+
+function mapInquiry(c: ApiContactInquiryDto): Inquiry {
+  return {
+    id: `IN-${c.id}`,
+    name: c.name,
+    email: c.email,
+    message: c.message,
+    at: c.createdAt,
+  };
+}
+
+function buildUsernameFromEmail(email: string): string {
+  const base = email
+    .split('@')[0]
+    .replace(/[^a-zA-Z0-9_]/g, '')
+    .slice(0, 40);
+  const safeBase = base.length >= 3 ? base : (base + 'user').slice(0, 10);
+  return `${safeBase}${Math.floor(10 + Math.random() * 89)}`;
 }
 
 /* ============================== CONTEXT ============================== */
-const KEY = 'garry-sis-db-v1';
-function load(): DB {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const s = localStorage.getItem(KEY);
-      if (s) {
-        const d = JSON.parse(s) as DB;
-        if (d.v === 1) return d;
-      }
-    }
-  } catch { }
-  return seed();
-}
-
-const BACKEND_ROLE_CREDENTIALS: Record<
-  Exclude<Role, 'Guest'>,
-  { username: string; password: string }
-> = {
-  Admin: { username: 'admin@grm.local', password: 'Admin123!' },
-  Staff: { username: 'staff@grm.local', password: 'Staff123!' },
-  Customer: { username: 'customer@grm.local', password: 'Customer123!' },
-};
-
 type Notice = { msg: string; tone: 'ok' | 'err' } | null;
+
 export interface Ctx {
   db: DB;
   user: User | null;
@@ -655,21 +758,26 @@ export interface Ctx {
   notice: Notice;
   apiOnline: boolean;
   apiBaseUrl: string;
-  syncWithBackend: () => Promise<boolean>;
+  syncWithBackend: (overrideUser?: User | null) => Promise<boolean>;
   flash: (msg: string, tone?: 'ok' | 'err') => void;
-  login: (email: string, pw: string) => Res;
-  register: (p: { name: string; email: string; password: string; phone: string }) => Res;
-  logout: () => void;
-  // switchRole: (r: Role) => void;
-  updateProfile: (p: { name: string; phone: string; address: string }) => Res;
-  changePassword: (cur: string, next: string) => Res;
-  addToCart: (kind: 'variant' | 'bundle', refId: string, qty?: number) => Res;
-  setCartQty: (kind: string, refId: string, qty: number) => void;
-  clearCart: () => void;
-  requestQuotation: (note: string) => Res;
-  checkout: (payment: Payment, address: string) => Res<Order>;
-  acceptQuotation: (id: string, payment: Payment) => Res<Order>;
-  declineQuotation: (id: string) => Res;
+  login: (email: string, pw: string) => Promise<Res<User>>;
+  register: (p: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+  }) => Promise<Res<User>>;
+  logout: () => Promise<void>;
+  updateProfile: (p: { name: string; phone: string; address: string }) => Promise<Res<User>>;
+  changePassword: (cur: string, next: string) => Promise<Res<void>>;
+  addToCart: (kind: 'variant' | 'bundle', refId: string, qty?: number) => Promise<Res<void>>;
+  setCartQty: (kind: string, refId: string, qty: number) => Promise<void>;
+  clearCart: () => Promise<void>;
+  requestQuotation: (note: string) => Promise<Res<Quotation>>;
+  checkout: (payment: Payment, address: string) => Promise<Res<Order>>;
+  acceptQuotation: (id: string) => Promise<Res<Quotation>>;
+  convertQuotation: (id: string) => Promise<Res<{ id: string }>>;
+  declineQuotation: (id: string) => Promise<Res<Quotation>>;
   saveQuotation: (p: {
     id?: string;
     customerId?: string | null;
@@ -678,33 +786,51 @@ export interface Ctx {
     discountPercent: number;
     validDays: number;
     note: string;
-  }) => Res<Quotation>;
+  }) => Promise<Res<Quotation>>;
   walkInSale: (p: {
     customerName: string;
     items: CartItem[];
     discountPercent: number;
     payment: Payment;
     paid: boolean;
-  }) => Res<{ orderId: string; invoiceId: string }>;
-  advanceOrder: (id: string) => Res;
-  cancelOrder: (id: string) => Res;
-  generateInvoice: (orderId: string) => Res<Invoice>;
-  markPaid: (id: string) => Res;
-  voidInvoice: (id: string, reason: string) => Res;
+  }) => Promise<Res<{ orderId: string; invoiceId: string }>>;
+  advanceOrder: (id: string) => Promise<Res<Order>>;
+  cancelOrder: (id: string) => Promise<Res<Order>>;
+  generateInvoice: (orderId: string) => Promise<Res<Invoice>>;
+  markPaid: (id: string) => Promise<Res<Invoice>>;
+  voidInvoice: (id: string, reason: string) => Promise<Res<Invoice>>;
   logStock: (p: {
     variantId: string;
     type: 'Stock-In' | 'Stock-Out';
     qty: number;
     reason: string;
-  }) => Res;
-  adjustStock: (p: { variantId: string; newCount: number; reason: string }) => Res;
-  createRequisition: (p: { variantId: string; qty: number; reason: string }) => Res;
-  decideRequisition: (id: string, approve: boolean, supplierId?: string) => Res;
-  updatePO: (id: string, p: { supplierId?: string | null; lines?: POLine[] }) => Res;
-  setPOStatus: (id: string, to: 'Approved' | 'Sent') => Res;
-  discardPO: (id: string) => Res;
-  receivePO: (id: string, received: Record<number, number>) => Res;
-  saveProduct: (p: Partial<Product> & { name: string; category: Product['category'] }) => Res;
+  }) => Promise<Res<void>>;
+  adjustStock: (p: {
+    variantId: string;
+    newCount: number;
+    reason: string;
+  }) => Promise<Res<void>>;
+  createRequisition: (p: {
+    variantId: string;
+    qty: number;
+    reason: string;
+  }) => Promise<Res<Requisition>>;
+  decideRequisition: (
+    id: string,
+    approve: boolean,
+    supplierId?: string
+  ) => Promise<Res<void>>;
+  updatePO: (
+    id: string,
+    p: { supplierId?: string | null; lines?: POLine[] }
+  ) => Promise<Res<void>>;
+  setPOStatus: (id: string, to: 'Approved' | 'Sent') => Promise<Res<void>>;
+  discardPO: (id: string) => Promise<Res<void>>;
+  receivePO: (id: string, received: Record<number, number>) => Promise<Res<void>>;
+  recalculateReorder: () => Promise<Res<{ draftPurchaseOrdersCreated: number }>>;
+  saveProduct: (
+    p: Partial<Product> & { name: string; category: Product['category'] }
+  ) => Promise<Res<Product>>;
   saveVariant: (
     p: Partial<Variant> & {
       productId: string;
@@ -712,7 +838,7 @@ export interface Ctx {
       sku: string;
       price: number;
     }
-  ) => Res;
+  ) => Promise<Res<Variant>>;
   saveBundle: (
     p: Partial<Bundle> & {
       name: string;
@@ -720,9 +846,10 @@ export interface Ctx {
       price: number;
       components: BundleComponent[];
     }
-  ) => Res;
-  setMaxDiscount: (pct: number) => Res;
-  saveSupplier: (p: Partial<Supplier> & { name: string }) => Res;
+  ) => Promise<Res<Bundle>>;
+  deleteBundle: (id: string) => Promise<Res<void>>;
+  setMaxDiscount: (pct: number) => Promise<Res<void>>;
+  saveSupplier: (p: Partial<Supplier> & { name: string }) => Promise<Res<Supplier>>;
   saveUser: (p: {
     id?: string;
     name: string;
@@ -730,20 +857,37 @@ export interface Ctx {
     password?: string;
     role: 'Staff' | 'Customer';
     phone?: string;
-  }) => Res;
-  toggleUser: (id: string) => Res;
-  submitInquiry: (p: { name: string; email: string; message: string }) => Res;
-  resetDemo: () => void;
+  }) => Promise<Res<User>>;
+  toggleUser: (id: string) => Promise<Res<void>>;
+  submitInquiry: (p: {
+    name: string;
+    email: string;
+    message: string;
+  }) => Promise<Res<void>>;
 }
 
 const SystemCtx = createContext<Ctx | null>(null);
 
 export function SystemProvider({ children }: { children: ReactNode }) {
-  const [db, setDb] = useState<DB>(load);
-  const ref = useRef<DB>(db);
+  const [db, setDb] = useState<DB>(emptyDB);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [guestCart, setGuestCart] = useState<CartItem[]>(readGuestCart);
+  const [customerCart, setCustomerCart] = useState<CartItem[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [apiOnline, setApiOnline] = useState<boolean>(false);
+
+  const dbRef = useRef<DB>(db);
+  const userRef = useRef<User | null>(currentUser);
+  const guestCartRef = useRef<CartItem[]>(guestCart);
+  const customerCartRef = useRef<CartItem[]>(customerCart);
   const timer = useRef<any>(null);
+
+  dbRef.current = db;
+  userRef.current = currentUser;
+  guestCartRef.current = guestCart;
+  customerCartRef.current = customerCart;
+
+  const role: Role = currentUser?.role ?? 'Guest';
 
   const flash = useCallback((msg: string, tone: 'ok' | 'err' = 'ok') => {
     setNotice({ msg, tone });
@@ -751,210 +895,243 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     timer.current = setTimeout(() => setNotice(null), 4500);
   }, []);
 
-  const commit = useCallback((d: DB) => {
-    ref.current = d;
-    setDb(d);
-    try {
-      if (typeof localStorage !== 'undefined')
-        localStorage.setItem(KEY, JSON.stringify(d));
-    } catch { }
+  const updateGuestCart = useCallback((items: CartItem[]) => {
+    guestCartRef.current = items;
+    setGuestCart(items);
+    writeGuestCart(items);
   }, []);
 
-  const tx = <T,>(fn: (d: DB) => T): Res<T> => {
-    try {
-      const d = clone(ref.current);
-      const data = fn(d);
-      syncDrafts(d);
-      commit(d);
-      return { ok: true, data };
-    } catch (e: any) {
-      return { ok: false, error: e.message ?? String(e) };
-    }
-  };
+  /** Load full state from GRM-Backend according to current user role */
+  const syncWithBackend = useCallback(
+    async (overrideUser?: User | null): Promise<boolean> => {
+      const activeUser =
+        overrideUser !== undefined ? overrideUser : userRef.current;
 
-  /** Helper: obtain a valid Staff/Admin JWT from GRM-Backend for background stock/quotation calls */
-  const getStaffOrAdminBackendToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await grmApi.auth.login(
-        BACKEND_ROLE_CREDENTIALS.Staff.username,
-        BACKEND_ROLE_CREDENTIALS.Staff.password
-      );
-      return res.token;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  /** Synchronize catalog, bundles, quotations, and inventory from GRM-Backend (http://localhost:5133) */
-  const syncWithBackend = useCallback(async (): Promise<boolean> => {
-    try {
-      const [prodPage, bundleList] = await Promise.all([
-        grmApi.products.list({ page: 1, pageSize: 100 }),
-        grmApi.bundles.list().catch(() => []),
-      ]);
-
-      const d = clone(ref.current);
-
-      // Merge Products & Variants from GRM-Backend by SKU / Name
-      for (const bp of prodPage.items) {
-        let localProd = d.products.find(
-          (p) =>
-            p.backendId === bp.id ||
-            p.name.toLowerCase() === bp.name.toLowerCase()
-        );
-        const cat = (
-          ['Smart Locks', 'Solar Panels', 'Batteries'].includes(bp.category)
-            ? bp.category
-            : 'Smart Locks'
-        ) as Product['category'];
-
-        if (!localProd) {
-          localProd = {
-            id: `P-${bp.id}`,
-            backendId: bp.id,
-            name: bp.name,
-            category: cat,
-            description: bp.description ?? '',
-            active: bp.isActive,
-          };
-          d.products.push(localProd);
-        } else {
-          localProd.backendId = bp.id;
-          localProd.name = bp.name;
-          localProd.description = bp.description ?? localProd.description;
-          localProd.active = bp.isActive;
-        }
-
-        for (const bv of bp.variants) {
-          let localVar = d.variants.find(
-            (v) =>
-              v.backendId === bv.id ||
-              v.sku.toLowerCase() === bv.sku.toLowerCase()
-          );
-          if (!localVar) {
-            localVar = {
-              id: `V-${bv.id}`,
-              backendId: bv.id,
-              productId: localProd.id,
-              name: bv.model,
-              sku: bv.sku,
-              price: Number(bv.price),
-              stock: bv.stock,
-              dailySales: [1, 0, 1, 0, 1, 0, 1],
-              active: true,
-            };
-            d.variants.push(localVar);
-          } else {
-            localVar.backendId = bv.id;
-            localVar.name = bv.model;
-            localVar.sku = bv.sku;
-            localVar.price = Number(bv.price);
-            localVar.stock = bv.stock;
-          }
-        }
-      }
-
-      // Merge Bundles from GRM-Backend
-      for (const bb of bundleList) {
-        let localBundle = d.bundles.find(
-          (b) =>
-            b.backendId === bb.id ||
-            b.name.toLowerCase() === bb.name.toLowerCase()
-        );
-        const mappedComponents: BundleComponent[] = bb.items
-          .map((item) => {
-            const v = d.variants.find(
-              (x) => x.backendId === item.variantId || x.sku === item.sku
-            );
-            return v ? { variantId: v.id, qty: item.quantity } : null;
-          })
-          .filter(Boolean) as BundleComponent[];
-
-        if (localBundle) {
-          localBundle.backendId = bb.id;
-          localBundle.price = Number(bb.price);
-          localBundle.description = bb.description ?? localBundle.description;
-          if (mappedComponents.length > 0) {
-            localBundle.components = mappedComponents;
-          }
-        } else if (mappedComponents.length > 0) {
-          d.bundles.push({
-            id: `B-${bb.id}`,
-            backendId: bb.id,
-            name: bb.name,
-            sku: `BND-${bb.id}`,
-            description: bb.description ?? '',
-            price: Number(bb.price),
-            active: true,
-            components: mappedComponents,
-          });
-        }
-      }
-
-      syncDrafts(d);
-      commit(d);
-      setApiOnline(true);
-      return true;
-    } catch {
-      setApiOnline(false);
-      return false;
-    }
-  }, [commit]);
-
-  /** Background helper to authenticate role on GRM-Backend and store real JWT */
-  const authenticateBackendRole = useCallback(
-    async (role: Exclude<Role, 'Guest'>, customEmail?: string, customPw?: string) => {
       try {
-        const creds = BACKEND_ROLE_CREDENTIALS[role];
-        const res = await grmApi.auth
-          .login(customEmail || creds.username, customPw || creds.password)
-          .catch(() => grmApi.auth.login(creds.username, creds.password));
-        setApiToken(res.token);
+        const [prodPage, bundleList] = await Promise.all([
+          grmApi.products.list({ page: 1, pageSize: 100 }),
+          grmApi.bundles.list().catch(() => [] as ApiBundleDto[]),
+        ]);
+
         setApiOnline(true);
-        return res;
+
+        if (!activeUser) {
+          const { products, variants, bundles } = mapCatalog(
+            prodPage.items,
+            bundleList
+          );
+          const next: DB = {
+            ...emptyDB(),
+            products,
+            variants,
+            bundles,
+          };
+          dbRef.current = next;
+          setDb(next);
+          setCustomerCart([]);
+          return true;
+        }
+
+        if (activeUser.role === 'Customer') {
+          const [cartDto, apiOrders, apiInvoices, apiQuotes, apiProfile] =
+            await Promise.all([
+              grmApi.cart.get().catch(() => null),
+              grmApi.orders.getMy().catch(() => [] as ApiOrderDto[]),
+              grmApi.invoices.getMy().catch(() => [] as ApiInvoiceDto[]),
+              grmApi.quotations.getMy().catch(() => [] as ApiQuotationDto[]),
+              grmApi.profile.get().catch(() => null),
+            ]);
+
+          const refreshedUser = apiProfile ? mapUser(apiProfile) : activeUser;
+          userRef.current = refreshedUser;
+          setCurrentUser(refreshedUser);
+
+          const { products, variants, bundles } = mapCatalog(
+            prodPage.items,
+            bundleList
+          );
+          const invoices = apiInvoices.map(mapInvoice);
+          const orders = apiOrders.map((o) => mapOrder(o, invoices));
+          const ordersByQuoteId = new Map<number, number>();
+          for (const o of apiOrders) {
+            if (o.quotationId) ordersByQuoteId.set(o.quotationId, o.id);
+          }
+
+          const next: DB = {
+            ...emptyDB(),
+            users: [refreshedUser],
+            products,
+            variants,
+            bundles,
+            orders,
+            invoices,
+            quotations: apiQuotes.map((q) => mapQuotation(q, ordersByQuoteId)),
+          };
+          dbRef.current = next;
+          setDb(next);
+          if (cartDto) {
+            const mapped = mapCart(cartDto);
+            customerCartRef.current = mapped;
+            setCustomerCart(mapped);
+          }
+          return true;
+        }
+
+        // Staff or Admin
+        const isAdmin = activeUser.role === 'Admin';
+        const [
+          apiOrders,
+          apiInvoices,
+          apiQuotes,
+          apiInvItems,
+          apiMovements,
+          apiReqs,
+          apiPOs,
+          apiSettings,
+          apiUsers,
+          apiSuppliers,
+          apiInquiries,
+          apiReorder,
+        ] = await Promise.all([
+          grmApi.orders.getAll().catch(() => [] as ApiOrderDto[]),
+          grmApi.invoices.getAll().catch(() => [] as ApiInvoiceDto[]),
+          grmApi.quotations.getAll().catch(() => [] as ApiQuotationDto[]),
+          grmApi.inventory.getAll().catch(() => [] as ApiInventoryItemDto[]),
+          grmApi.inventory.movements().catch(() => [] as ApiStockMovementDto[]),
+          grmApi.requisitions.list().catch(() => [] as ApiRequisitionDto[]),
+          grmApi.purchaseOrders.list().catch(() => [] as ApiPurchaseOrderDto[]),
+          grmApi.settings.get().catch(() => null),
+          grmApi.users.list().catch(() => [] as ApiUserDto[]),
+          isAdmin
+            ? grmApi.suppliers.list().catch(() => [] as ApiSupplierDto[])
+            : Promise.resolve([] as ApiSupplierDto[]),
+          isAdmin
+            ? grmApi.contact.list().catch(() => [] as ApiContactInquiryDto[])
+            : Promise.resolve([] as ApiContactInquiryDto[]),
+          isAdmin
+            ? grmApi.reorder
+                .suggestions(7, true)
+                .catch(() => [] as ApiReorderSuggestionDto[])
+            : Promise.resolve([] as ApiReorderSuggestionDto[]),
+        ]);
+
+        const users = apiUsers.map(mapUser);
+        const { products, variants, bundles } = mapCatalog(
+          prodPage.items,
+          bundleList,
+          apiInvItems,
+          apiReorder
+        );
+        const invoices = apiInvoices.map(mapInvoice);
+        const orders = apiOrders.map((o) => mapOrder(o, invoices));
+        const ordersByQuoteId = new Map<number, number>();
+        for (const o of apiOrders) {
+          if (o.quotationId) ordersByQuoteId.set(o.quotationId, o.id);
+        }
+
+        const next: DB = {
+          users: users.length ? users : [activeUser],
+          products,
+          variants,
+          bundles,
+          orders,
+          invoices,
+          quotations: apiQuotes.map((q) => mapQuotation(q, ordersByQuoteId)),
+          movements: apiMovements.map((m) => mapMovement(m, users)),
+          suppliers: apiSuppliers.map(mapSupplier),
+          requisitions: apiReqs.map(mapRequisition),
+          pos: apiPOs.map(mapPurchaseOrder),
+          inquiries: apiInquiries.map(mapInquiry),
+          settings: {
+            maxStaffDiscountPercent: apiSettings
+              ? Number(apiSettings.maxStaffDiscountPercent)
+              : 15,
+            defaultQuotationValidityDays: apiSettings
+              ? apiSettings.defaultQuotationValidityDays
+              : 7,
+          },
+        };
+
+        dbRef.current = next;
+        setDb(next);
+        setCustomerCart([]);
+        return true;
       } catch {
-        return null;
+        setApiOnline(false);
+        return false;
       }
     },
     []
   );
 
-  /** Sync variant stock changes (deductions/additions) to GRM-Backend /api/inventory */
-  const pushStockDeltasToBackend = useCallback(
-    async (
-      deltas: { backendVariantId?: number; delta: number; reason: string }[]
-    ) => {
-      try {
-        const token = await getStaffOrAdminBackendToken();
-        if (!token) return;
-        for (const item of deltas) {
-          if (!item.backendVariantId || item.delta === 0) continue;
-          if (item.delta > 0) {
-            await grmApi.inventory.stockIn(
-              item.backendVariantId,
-              item.delta,
-              item.reason,
-              token
-            );
-          } else {
-            await grmApi.inventory.stockOut(
-              item.backendVariantId,
-              Math.abs(item.delta),
-              item.reason,
-              token
-            );
-          }
-        }
-        await syncWithBackend();
-      } catch { }
-    },
-    [getStaffOrAdminBackendToken, syncWithBackend]
-  );
+  /** Push any Guest localStorage cart items into Customer's backend cart on login/register */
+  const mergeGuestCartToBackend = useCallback(async () => {
+    const itemsToMerge = [...guestCartRef.current];
+    if (itemsToMerge.length === 0) return;
 
-  // Initial sync with GRM-Backend on mount
+    for (const item of itemsToMerge) {
+      if (item.kind === 'variant') {
+        const v = dbRef.current.variants.find((x) => x.id === item.refId);
+        const vid = v?.backendId ?? Number(item.refId.replace(/^V-/, ''));
+        if (vid > 0) {
+          await grmApi.cart.addItem(vid, item.qty).catch(() => {});
+        }
+      } else {
+        const b = dbRef.current.bundles.find((x) => x.id === item.refId);
+        const bid = b?.backendId ?? Number(item.refId.replace(/^B-/, ''));
+        if (bid > 0) {
+          await grmApi.cart.addBundle(bid, item.qty).catch(() => {});
+        }
+      }
+    }
+
+    updateGuestCart([]);
+  }, [updateGuestCart]);
+
+  // Restore session from JWT token in localStorage and sync initial catalog
   useEffect(() => {
-    syncWithBackend();
+    let active = true;
+    (async () => {
+      const storedToken = readStoredToken();
+      if (storedToken) {
+        setApiToken(storedToken);
+        try {
+          const me = await grmApi.auth.me();
+          if (!active) return;
+          const mapped = mapUser(me);
+          userRef.current = mapped;
+          setCurrentUser(mapped);
+          await syncWithBackend(mapped);
+          return;
+        } catch {
+          setApiToken(null);
+          writeStoredToken(null);
+        }
+      }
+      if (!active) return;
+      userRef.current = null;
+      setCurrentUser(null);
+      await syncWithBackend(null);
+    })();
+    return () => {
+      active = false;
+    };
   }, [syncWithBackend]);
+
+  const splitLineItems = (items: CartItem[]) => {
+    const variantItems: { variantId: number; quantity: number }[] = [];
+    const bundleItems: { bundleId: number; quantity: number }[] = [];
+    for (const item of items) {
+      if (item.kind === 'variant') {
+        const v = dbRef.current.variants.find((x) => x.id === item.refId);
+        if (v) variantItems.push({ variantId: v.backendId, quantity: item.qty });
+      } else {
+        const b = dbRef.current.bundles.find((x) => x.id === item.refId);
+        if (b) bundleItems.push({ bundleId: b.backendId, quantity: item.qty });
+      }
+    }
+    return { variantItems, bundleItems };
+  };
 
   const api: Omit<
     Ctx,
@@ -964,978 +1141,914 @@ export function SystemProvider({ children }: { children: ReactNode }) {
     | 'cart'
     | 'listings'
     | 'notice'
-    | 'flash'
     | 'apiOnline'
     | 'apiBaseUrl'
     | 'syncWithBackend'
+    | 'flash'
   > = {
-    login: (email, pw) => {
-      const res = tx((d) => {
-        const normalized = email.trim().toLowerCase();
-        // Accept both @garry.ph and @grm.local / username aliases
-        const u = d.users.find(
-          (x) =>
-            (x.email.toLowerCase() === normalized ||
-              (normalized === 'admin@grm.local' && x.role === 'Admin') ||
-              (normalized === 'staff@grm.local' && x.role === 'Staff') ||
-              (normalized === 'customer@grm.local' && x.role === 'Customer') ||
-              normalized === x.role.toLowerCase()) &&
-            (x.password === pw ||
-              pw === 'Admin123!' ||
-              pw === 'Staff123!' ||
-              pw === 'Customer123!')
-        );
-        if (!u) throw new Error('Invalid email or password');
-        if (!u.active) throw new Error('This account has been deactivated');
-        makeSession(d, u);
-        return u;
-      });
-      if (res.ok) {
-        authenticateBackendRole(res.data.role, email, pw).then(() =>
-          syncWithBackend()
-        );
+    login: async (email, pw) => {
+      try {
+        const authRes = await grmApi.auth.login(email.trim(), pw);
+        setApiToken(authRes.token);
+        writeStoredToken(authRes.token);
+        const mapped = mapUser(authRes.user);
+        userRef.current = mapped;
+        setCurrentUser(mapped);
+        if (mapped.role === 'Customer') {
+          await mergeGuestCartToBackend();
+        }
+        await syncWithBackend(mapped);
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Login failed' };
       }
-      return res;
     },
 
-    register: (p) => {
-      const res = tx((d) => {
-        if (!p.name.trim() || !p.email.includes('@') || p.password.length < 6)
+    register: async (p) => {
+      try {
+        if (!p.name.trim() || !p.email.includes('@') || p.password.length < 6) {
           throw new Error(
             'Enter a name, valid email and a password of 6+ characters'
           );
-        if (
-          d.users.some(
-            (x) => x.email.toLowerCase() === p.email.trim().toLowerCase()
-          )
-        )
-          throw new Error('Email is already registered');
-        const u: User = {
-          id: nid(d, 'U'),
-          name: p.name.trim(),
+        }
+        const username = buildUsernameFromEmail(p.email.trim());
+        await grmApi.auth.register({
+          username,
           email: p.email.trim(),
           password: p.password,
-          phone: p.phone,
-          address: '',
-          role: 'Customer',
-          active: true,
-        };
-        d.users.push(u);
-        makeSession(d, u);
-        return u;
-      });
-      if (res.ok) {
-        const username =
-          p.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') +
-          Math.floor(10 + Math.random() * 89);
-        grmApi.auth
-          .register({
-            username,
-            email: p.email.trim(),
-            password: p.password,
-            fullName: p.name.trim(),
-            phoneNumber: p.phone,
-          })
-          .then(() => grmApi.auth.login(p.email.trim(), p.password))
-          .then((authRes) => {
-            setApiToken(authRes.token);
-            setApiOnline(true);
-          })
-          .catch(() => { });
+          fullName: p.name.trim(),
+          phoneNumber: p.phone?.trim() || undefined,
+        });
+        const authRes = await grmApi.auth.login(p.email.trim(), p.password);
+        setApiToken(authRes.token);
+        writeStoredToken(authRes.token);
+        const mapped = mapUser(authRes.user);
+        userRef.current = mapped;
+        setCurrentUser(mapped);
+        await mergeGuestCartToBackend();
+        await syncWithBackend(mapped);
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Registration failed' };
       }
-      return res;
     },
 
-    logout: () => {
-      grmApi.auth.logout().catch(() => { });
+    logout: async () => {
+      await grmApi.auth.logout().catch(() => {});
       setApiToken(null);
-      tx((d) => {
-        d.session = { userId: null, token: null };
-      });
+      writeStoredToken(null);
+      userRef.current = null;
+      setCurrentUser(null);
+      customerCartRef.current = [];
+      setCustomerCart([]);
+      await syncWithBackend(null);
     },
 
-    // switchRole: (r) => {
-    //   tx((d) => {
-    //     if (r === 'Guest') {
-    //       d.session = { userId: null, token: null };
-    //       setApiToken(null);
-    //       return;
-    //     }
-    //     const u = d.users.find((x) => x.role === r && x.active);
-    //     if (!u) throw new Error(`No active ${r} account`);
-    //     makeSession(d, u);
-    //   });
-    //   if (r !== 'Guest') {
-    //     authenticateBackendRole(r).then(() => syncWithBackend());
-    //   }
-    // },
-
-    updateProfile: (p) => {
-      const res = tx((d) => {
-        const u = cur(d);
-        if (!u) throw new Error('401 Unauthorized');
-        u.name = p.name;
-        u.phone = p.phone;
-        u.address = p.address;
-      });
-      if (res.ok) {
-        grmApi.profile
-          .update({
-            fullName: p.name,
-            phoneNumber: p.phone,
-            address: p.address,
-          })
-          .catch(() => { });
+    updateProfile: async (p) => {
+      try {
+        const updated = await grmApi.profile.update({
+          fullName: p.name,
+          phoneNumber: p.phone,
+          address: p.address,
+        });
+        const mapped = mapUser(updated);
+        userRef.current = mapped;
+        setCurrentUser(mapped);
+        await syncWithBackend(mapped);
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to update profile' };
       }
-      return res;
     },
 
-    changePassword: (c, n) =>
-      tx((d) => {
-        const u = cur(d);
-        if (!u) throw new Error('401 Unauthorized');
-        if (u.password !== c) throw new Error('Current password is incorrect');
-        if (n.length < 6)
+    changePassword: async (cur, next) => {
+      try {
+        if (next.length < 6) {
           throw new Error('New password must be at least 6 characters');
-        u.password = n;
-      }),
-
-    addToCart: (kind, refId, qty = 1) => {
-      const res = tx((d) => {
-        const k = cartKey(d);
-        const c = d.carts[k] ?? (d.carts[k] = []);
-        const ex = c.find((i) => i.kind === kind && i.refId === refId);
-        if (ex) ex.qty += qty;
-        else c.push({ kind, refId, qty });
-        return d.variants.find((v) => v.id === refId)?.backendId;
-      });
-      if (res.ok && kind === 'variant' && res.data && roleOf(ref.current) === 'Customer') {
-        grmApi.cart.addItem(res.data, qty).catch(() => { });
-      }
-      return res;
-    },
-
-    setCartQty: (kind, refId, qty) => {
-      const bId = ref.current.variants.find((v) => v.id === refId)?.backendId;
-      tx((d) => {
-        const k = cartKey(d);
-        d.carts[k] = (d.carts[k] ?? [])
-          .map((i) => (i.kind === kind && i.refId === refId ? { ...i, qty } : i))
-          .filter((i) => i.qty > 0);
-      });
-      if (kind === 'variant' && bId && roleOf(ref.current) === 'Customer') {
-        if (qty > 0) grmApi.cart.updateItem(bId, qty).catch(() => { });
-        else grmApi.cart.removeItem(bId).catch(() => { });
+        }
+        await grmApi.auth.changePassword(cur, next);
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to change password' };
       }
     },
 
-    clearCart: () => {
-      tx((d) => {
-        d.carts[cartKey(d)] = [];
-      });
-      if (roleOf(ref.current) === 'Customer') {
-        grmApi.cart.clear().catch(() => { });
+    addToCart: async (kind, refId, qty = 1) => {
+      // Guest cart stays strictly in localStorage
+      if (!userRef.current) {
+        const current = [...guestCartRef.current];
+        const existing = current.find(
+          (i) => i.kind === kind && i.refId === refId
+        );
+        if (existing) existing.qty += qty;
+        else current.push({ kind, refId, qty });
+        updateGuestCart(current);
+        return { ok: true, data: undefined };
       }
-    },
 
-    requestQuotation: (note) => {
-      const currentItems =
-        ref.current.carts[ref.current.session.userId ?? ''] ?? [];
-      const expanded = expand(ref.current, currentItems);
-      const backendItems = Array.from(expanded.entries())
-        .map(([vId, q]) => ({
-          variantId:
-            ref.current.variants.find((v) => v.id === vId)?.backendId ?? 0,
-          quantity: q,
-        }))
-        .filter((i) => i.variantId > 0);
-
-      const res = tx((d) => {
-        need(d, 'Customer');
-        const u = cur(d)!;
-        const lines = toLines(d, d.carts[u.id] ?? []);
-        const qObj: Quotation = {
-          id: nid(d, 'QT'),
-          customerId: u.id,
-          customerName: u.name,
-          lines,
-          discountPercent: 0,
-          status: 'Requested',
-          validUntil: null,
-          note,
-          createdAt: nowISO(),
-          preparedBy: null,
-          orderId: null,
+      if (userRef.current.role !== 'Customer') {
+        return {
+          ok: false,
+          error: 'Only Guests and Customers can use the shopping cart',
         };
-        d.quotations.push(qObj);
-        d.carts[u.id] = [];
-        return qObj;
-      });
-
-      if (res.ok && backendItems.length > 0) {
-        authenticateBackendRole('Customer')
-          .then(() => grmApi.quotations.requestQuote(backendItems, note))
-          .then((apiQ: ApiQuotationDto) => {
-            tx((d) => {
-              const target = d.quotations.find((x) => x.id === res.data.id);
-              if (target) target.backendId = apiQ.id;
-            });
-          })
-          .catch(() => { });
       }
-      return res;
-    },
 
-    checkout: (payment, address) => {
-      const currentItems =
-        ref.current.carts[ref.current.session.userId ?? ''] ?? [];
-      const expanded = expand(ref.current, currentItems);
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: -q,
-        reason: 'Customer Online Order Checkout',
-      }));
-
-      const res = tx((d) => {
-        need(d, 'Customer');
-        const u = cur(d)!;
-        if (!address.trim()) throw new Error('Delivery address is required');
-        const lines = toLines(d, d.carts[u.id] ?? []);
-        const o = createOrder(d, {
-          customerId: u.id,
-          customerName: u.name,
-          channel: 'Online',
-          lines,
-          discountPercent: 0,
-          payment,
-          address,
-          status: 'Pending',
-        });
-        d.carts[u.id] = [];
-        return o;
-      });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
-      }
-      return res;
-    },
-
-    acceptQuotation: (id, payment) => {
-      const targetQuote = ref.current.quotations.find((q) => q.id === id);
-      const expanded = targetQuote
-        ? expand(ref.current, targetQuote.lines)
-        : new Map<string, number>();
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: -q,
-        reason: `Accepted Quotation ${id}`,
-      }));
-
-      const res = tx((d) => {
-        need(d, 'Customer', 'Staff', 'Admin');
-        const q = d.quotations.find((x) => x.id === id);
-        if (!q) throw new Error('Quotation not found');
-        if (roleOf(d) === 'Customer' && q.customerId !== d.session.userId)
-          throw new Error('403 Forbidden');
-        if (q.status !== 'Quoted')
-          throw new Error('Only a prepared quotation can be accepted');
-        if (isExpired(q)) throw new Error('This quotation has expired');
-        const cust = d.users.find((u) => u.id === q.customerId);
-        const o = createOrder(d, {
-          customerId: q.customerId,
-          customerName: q.customerName,
-          channel: q.customerId ? 'Online' : 'WalkIn',
-          lines: q.lines,
-          discountPercent: q.discountPercent,
-          payment,
-          address: cust?.address || 'To be confirmed',
-          status: 'Pending',
-          quotationId: q.id,
-        });
-        q.status = 'Accepted';
-        q.orderId = o.id;
-        return o;
-      });
-
-      if (res.ok) {
-        if (targetQuote?.backendId) {
-          const bId = targetQuote.backendId;
-          authenticateBackendRole('Customer')
-            .then(() => grmApi.quotations.accept(bId))
-            .then(() => getStaffOrAdminBackendToken())
-            .then((staffToken) =>
-              staffToken ? grmApi.quotations.convert(bId, staffToken) : null
-            )
-            .then(() => syncWithBackend())
-            .catch(() => pushStockDeltasToBackend(deltas));
+      try {
+        let dto: ApiCartDto;
+        if (kind === 'variant') {
+          const v = dbRef.current.variants.find((x) => x.id === refId);
+          if (!v) throw new Error('Item not found');
+          dto = await grmApi.cart.addItem(v.backendId, qty);
         } else {
-          pushStockDeltasToBackend(deltas);
+          const b = dbRef.current.bundles.find((x) => x.id === refId);
+          if (!b) throw new Error('Bundle not found');
+          dto = await grmApi.cart.addBundle(b.backendId, qty);
         }
+        const mapped = mapCart(dto);
+        customerCartRef.current = mapped;
+        setCustomerCart(mapped);
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to add item to cart' };
       }
-      return res;
     },
 
-    declineQuotation: (id) => {
-      const bId = ref.current.quotations.find((q) => q.id === id)?.backendId;
-      const res = tx((d) => {
-        need(d, 'Customer', 'Staff', 'Admin');
-        const q = d.quotations.find((x) => x.id === id);
-        if (!q) throw new Error('Quotation not found');
-        if (roleOf(d) === 'Customer' && q.customerId !== d.session.userId)
-          throw new Error('403 Forbidden');
-        if (q.status !== 'Quoted' && q.status !== 'Requested')
-          throw new Error('Quotation can no longer be declined');
-        q.status = 'Declined';
-      });
-      if (res.ok && bId) {
-        grmApi.quotations.decline(bId, 'Declined by customer').catch(() => { });
+    setCartQty: async (kind, refId, qty) => {
+      // Guest cart stays strictly in localStorage
+      if (!userRef.current) {
+        const next = guestCartRef.current
+          .map((i) =>
+            i.kind === kind && i.refId === refId ? { ...i, qty } : i
+          )
+          .filter((i) => i.qty > 0);
+        updateGuestCart(next);
+        return;
       }
-      return res;
+
+      if (userRef.current.role !== 'Customer') return;
+
+      try {
+        let dto: ApiCartDto;
+        if (kind === 'variant') {
+          const v = dbRef.current.variants.find((x) => x.id === refId);
+          if (!v) return;
+          dto =
+            qty > 0
+              ? await grmApi.cart.updateItem(v.backendId, qty)
+              : await grmApi.cart.removeItem(v.backendId);
+        } else {
+          const b = dbRef.current.bundles.find((x) => x.id === refId);
+          if (!b) return;
+          dto =
+            qty > 0
+              ? await grmApi.cart.updateBundle(b.backendId, qty)
+              : await grmApi.cart.removeBundle(b.backendId);
+        }
+        const mapped = mapCart(dto);
+        customerCartRef.current = mapped;
+        setCustomerCart(mapped);
+      } catch (e: any) {
+        flash(e?.message ?? 'Failed to update cart', 'err');
+      }
     },
 
-    saveQuotation: (p) => {
-      const res = tx((d) => {
-        need(d, 'Staff', 'Admin');
-        assertDiscount(d, p.discountPercent);
-        const validUntil = new Date(
-          Date.now() + p.validDays * 86400000
-        ).toISOString();
-        if (p.id) {
-          const q = d.quotations.find((x) => x.id === p.id);
-          if (!q) throw new Error('Quotation not found');
-          if (q.status !== 'Requested' && q.status !== 'Quoted')
-            throw new Error('Quotation is closed');
-          q.discountPercent = p.discountPercent;
-          q.validUntil = validUntil;
-          q.note = p.note;
-          q.status = 'Quoted';
-          q.preparedBy = who(d);
-          return q;
+    clearCart: async () => {
+      if (!userRef.current) {
+        updateGuestCart([]);
+        return;
+      }
+      if (userRef.current.role !== 'Customer') return;
+      try {
+        await grmApi.cart.clear();
+        customerCartRef.current = [];
+        setCustomerCart([]);
+      } catch (e: any) {
+        flash(e?.message ?? 'Failed to clear cart', 'err');
+      }
+    },
+
+    requestQuotation: async (note) => {
+      try {
+        if (userRef.current?.role !== 'Customer') {
+          throw new Error('Log in as a Customer to request a quotation');
         }
-        const cust = d.users.find((u) => u.id === p.customerId);
-        const name = cust?.name ?? (p.customerName ?? '').trim();
-        if (!name)
-          throw new Error('Select a customer or enter a walk-in name');
-        const q: Quotation = {
-          id: nid(d, 'QT'),
-          customerId: cust?.id ?? null,
-          customerName: name,
-          lines: toLines(d, p.items ?? []),
-          discountPercent: p.discountPercent,
-          status: 'Quoted',
-          validUntil,
-          note: p.note,
-          createdAt: nowISO(),
-          preparedBy: who(d),
-          orderId: null,
+        const { variantItems, bundleItems } = splitLineItems(
+          customerCartRef.current
+        );
+        if (!variantItems.length && !bundleItems.length) {
+          throw new Error('Your cart is empty');
+        }
+        const apiQ = await grmApi.quotations.requestQuote(
+          variantItems,
+          note,
+          bundleItems.length ? bundleItems : undefined
+        );
+        await grmApi.cart.clear().catch(() => {});
+        customerCartRef.current = [];
+        setCustomerCart([]);
+        await syncWithBackend();
+        return { ok: true, data: mapQuotation(apiQ, new Map()) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to request quotation',
         };
-        d.quotations.push(q);
-        return q;
-      });
+      }
+    },
 
-      if (res.ok && res.data.backendId) {
-        const bId = res.data.backendId;
-        grmApi.quotations
-          .update(bId, {
+    checkout: async (payment, address) => {
+      try {
+        if (userRef.current?.role !== 'Customer') {
+          throw new Error('Log in as a Customer to place an order');
+        }
+        if (!address.trim()) {
+          throw new Error('Delivery address is required');
+        }
+        const apiOrder = await grmApi.orders.checkout({
+          paymentMethod: payment,
+          shippingAddress: address.trim(),
+        });
+        customerCartRef.current = [];
+        setCustomerCart([]);
+        await syncWithBackend();
+        const mapped =
+          dbRef.current.orders.find((o) => o.backendId === apiOrder.id) ??
+          mapOrder(apiOrder, dbRef.current.invoices);
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Checkout failed' };
+      }
+    },
+
+    acceptQuotation: async (id) => {
+      try {
+        const q = dbRef.current.quotations.find((x) => x.id === id);
+        if (!q) throw new Error('Quotation not found');
+        const apiQ = await grmApi.quotations.accept(q.backendId);
+        await syncWithBackend();
+        return { ok: true, data: mapQuotation(apiQ, new Map()) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to accept quotation',
+        };
+      }
+    },
+
+    convertQuotation: async (id) => {
+      try {
+        const q = dbRef.current.quotations.find((x) => x.id === id);
+        if (!q) throw new Error('Quotation not found');
+        const orderRes = await grmApi.quotations.convert(q.backendId);
+        await syncWithBackend();
+        return { ok: true, data: { id: `ORD-${orderRes.id}` } };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to convert quotation',
+        };
+      }
+    },
+
+    declineQuotation: async (id) => {
+      try {
+        const q = dbRef.current.quotations.find((x) => x.id === id);
+        if (!q) throw new Error('Quotation not found');
+        const apiQ = await grmApi.quotations.decline(
+          q.backendId,
+          'Declined by customer'
+        );
+        await syncWithBackend();
+        return { ok: true, data: mapQuotation(apiQ, new Map()) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to decline quotation',
+        };
+      }
+    },
+
+    saveQuotation: async (p) => {
+      try {
+        if (p.id) {
+          const q = dbRef.current.quotations.find((x) => x.id === p.id);
+          if (!q) throw new Error('Quotation not found');
+          await grmApi.quotations.update(q.backendId, {
             discountPercent: p.discountPercent,
             notes: p.note,
-          })
-          .then(() => grmApi.quotations.send(bId))
-          .catch(() => { });
+          });
+          const sent = await grmApi.quotations.send(q.backendId, {
+            validDays: p.validDays,
+          });
+          await syncWithBackend();
+          return { ok: true, data: mapQuotation(sent, new Map()) };
+        }
+
+        const cust = dbRef.current.users.find((u) => u.id === p.customerId);
+        if (!cust?.backendId) {
+          throw new Error('Select a registered Customer account');
+        }
+        const { variantItems, bundleItems } = splitLineItems(p.items ?? []);
+        if (!variantItems.length && !bundleItems.length) {
+          throw new Error('Select at least one item');
+        }
+        const created = await grmApi.quotations.create({
+          customerId: cust.backendId,
+          items: variantItems,
+          bundles: bundleItems.length ? bundleItems : undefined,
+          discountPercent: p.discountPercent,
+          notes: p.note,
+        });
+        const sent = await grmApi.quotations.send(created.id, {
+          validDays: p.validDays,
+        });
+        await syncWithBackend();
+        return { ok: true, data: mapQuotation(sent, new Map()) };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to save quotation' };
       }
-      return res;
     },
 
-    walkInSale: (p) => {
-      const expanded = expand(ref.current, p.items);
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: -q,
-        reason: `Walk-In POS Sale (${p.customerName || 'Walk-in'})`,
-      }));
-
-      const res = tx((d) => {
-        need(d, 'Staff', 'Admin');
-        assertDiscount(d, p.discountPercent);
-        const o = createOrder(d, {
-          customerId: null,
+    walkInSale: async (p) => {
+      try {
+        const { variantItems, bundleItems } = splitLineItems(p.items);
+        if (!variantItems.length && !bundleItems.length) {
+          throw new Error('Select at least one item');
+        }
+        const order = await grmApi.orders.createWalkIn({
           customerName: p.customerName.trim() || 'Walk-in Customer',
-          channel: 'WalkIn',
-          lines: toLines(d, p.items),
+          items: variantItems,
+          bundles: bundleItems.length ? bundleItems : undefined,
           discountPercent: p.discountPercent,
-          payment: p.payment,
-          address: 'In-store',
+          paymentMethod: p.payment,
           status: 'Completed',
         });
-        const inv = makeInvoice(d, o, p.paid);
-        return { orderId: o.id, invoiceId: inv.id };
-      });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
-      }
-      return res;
-    },
-
-    advanceOrder: (id) =>
-      tx((d) => {
-        need(d, 'Staff', 'Admin');
-        const o = d.orders.find((x) => x.id === id);
-        if (!o) throw new Error('Order not found');
-        if (o.status === 'Pending') o.status = 'Processing';
-        else if (o.status === 'Processing') o.status = 'Completed';
-        else throw new Error(`Order is ${o.status}`);
-      }),
-
-    cancelOrder: (id) => {
-      const ord = ref.current.orders.find((x) => x.id === id);
-      const expanded = ord
-        ? expand(ref.current, ord.lines)
-        : new Map<string, number>();
-      const deltas = Array.from(expanded.entries()).map(([vId, q]) => ({
-        backendVariantId: ref.current.variants.find((v) => v.id === vId)
-          ?.backendId,
-        delta: q,
-        reason: `Cancelled Order ${id}`,
-      }));
-
-      const res = tx((d) => {
-        need(d, 'Customer', 'Staff', 'Admin');
-        const o = d.orders.find((x) => x.id === id);
-        if (!o) throw new Error('Order not found');
-        const r = roleOf(d);
-        if (
-          r === 'Customer' &&
-          (o.customerId !== d.session.userId || o.status !== 'Pending')
-        )
-          throw new Error(
-            'Customers can only cancel their own Pending orders'
-          );
-        if (o.status === 'Completed' || o.status === 'Cancelled')
-          throw new Error(`Cannot cancel a ${o.status} order`);
-        const inv = d.invoices.find((i) => i.id === o.invoiceId);
-        if (inv?.status === 'Paid')
-          throw new Error('Paid invoice must be voided by the Admin first');
-        if (inv && inv.status === 'Unpaid') {
-          inv.status = 'Voided';
-          inv.voidReason = 'Order cancelled';
-        }
-        restock(d, o.lines, o.id);
-        o.status = 'Cancelled';
-      });
-      if (res.ok) {
-        pushStockDeltasToBackend(deltas);
-      }
-      return res;
-    },
-
-    generateInvoice: (orderId) =>
-      tx((d) => {
-        need(d, 'Staff', 'Admin');
-        const o = d.orders.find((x) => x.id === orderId);
-        if (!o) throw new Error('Order not found');
-        if (o.status === 'Cancelled')
-          throw new Error('Cannot invoice a cancelled order');
-        const ex = d.invoices.find((i) => i.id === o.invoiceId);
-        if (ex && ex.status !== 'Voided')
-          throw new Error('Invoice already exists for this order');
-        return makeInvoice(d, o, false);
-      }),
-
-    markPaid: (id) =>
-      tx((d) => {
-        need(d, 'Staff', 'Admin');
-        const i = d.invoices.find((x) => x.id === id);
-        if (!i) throw new Error('Invoice not found');
-        if (i.status !== 'Unpaid') throw new Error(`Invoice is ${i.status}`);
-        i.status = 'Paid';
-        i.paidAt = nowISO();
-      }),
-
-    voidInvoice: (id, reason) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const i = d.invoices.find((x) => x.id === id);
-        if (!i) throw new Error('Invoice not found');
-        if (i.status === 'Voided') throw new Error('Invoice already voided');
-        if (!reason.trim())
-          throw new Error('A reason is required to void an invoice');
-        i.status = 'Voided';
-        i.voidReason = reason.trim();
-      }),
-
-    logStock: (p) => {
-      const bId = ref.current.variants.find(
-        (v) => v.id === p.variantId
-      )?.backendId;
-      const res = tx((d) => {
-        need(d, 'Staff', 'Admin');
-        if (!p.reason.trim()) throw new Error('A reason is mandatory');
-        if (!Number.isInteger(p.qty) || p.qty < 1)
-          throw new Error('Quantity must be a whole number ≥ 1');
-        const v = d.variants.find((x) => x.id === p.variantId);
-        if (!v) throw new Error('Select a variant');
-        if (p.type === 'Stock-Out' && v.stock < p.qty)
-          throw new Error(`Only ${v.stock} in stock`);
-        v.stock += p.type === 'Stock-In' ? p.qty : -p.qty;
-        d.movements.push({
-          id: nid(d, 'MV'),
-          variantId: v.id,
-          type: p.type,
-          qty: p.type === 'Stock-In' ? p.qty : -p.qty,
-          reason: p.reason.trim(),
-          ref: '—',
-          by: who(d),
-          at: nowISO(),
+        const inv = await grmApi.invoices.generate(order.id, {
+          paymentMethod: p.payment,
+          paymentStatus: p.paid ? 'Paid' : 'Unpaid',
         });
-      });
-      if (res.ok && bId) {
-        if (p.type === 'Stock-In') {
-          grmApi.inventory
-            .stockIn(bId, p.qty, p.reason)
-            .then(() => syncWithBackend())
-            .catch(() => { });
-        } else {
-          grmApi.inventory
-            .stockOut(bId, p.qty, p.reason)
-            .then(() => syncWithBackend())
-            .catch(() => { });
-        }
-      }
-      return res;
-    },
-
-    adjustStock: (p) => {
-      const bId = ref.current.variants.find(
-        (v) => v.id === p.variantId
-      )?.backendId;
-      const res = tx((d) => {
-        need(d, 'Admin');
-        if (!p.reason.trim()) throw new Error('An audit reason is required');
-        if (!Number.isInteger(p.newCount) || p.newCount < 0)
-          throw new Error('New count must be a whole number ≥ 0');
-        const v = d.variants.find((x) => x.id === p.variantId);
-        if (!v) throw new Error('Select a variant');
-        const diff = p.newCount - v.stock;
-        d.movements.push({
-          id: nid(d, 'MV'),
-          variantId: v.id,
-          type: 'Adjustment',
-          qty: diff,
-          reason: p.reason.trim(),
-          ref: '—',
-          by: who(d),
-          at: nowISO(),
-        });
-        v.stock = p.newCount;
-      });
-      if (res.ok && bId) {
-        grmApi.inventory
-          .adjust(bId, p.newCount, p.reason)
-          .then(() => syncWithBackend())
-          .catch(() => { });
-      }
-      return res;
-    },
-
-    createRequisition: (p) =>
-      tx((d) => {
-        need(d, 'Staff', 'Admin');
-        if (!p.variantId) throw new Error('Select a variant');
-        if (!Number.isInteger(p.qty) || p.qty < 1)
-          throw new Error('Quantity must be ≥ 1');
-        d.requisitions.push({
-          id: nid(d, 'PR'),
-          variantId: p.variantId,
-          qty: p.qty,
-          reason: p.reason,
-          requestedBy: who(d),
-          status: 'Pending',
-          poId: null,
-          createdAt: nowISO(),
-        });
-      }),
-
-    decideRequisition: (id, approve, supplierId) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const r = d.requisitions.find((x) => x.id === id);
-        if (!r) throw new Error('Requisition not found');
-        if (r.status !== 'Pending')
-          throw new Error(`Requisition already ${r.status}`);
-        if (!approve) {
-          r.status = 'Declined';
-          return;
-        }
-        if (!supplierId) throw new Error('Assign a supplier to approve');
-        const po: PurchaseOrder = {
-          id: nid(d, 'PO'),
-          supplierId,
-          lines: [{ variantId: r.variantId, qty: r.qty, received: 0 }],
-          status: 'Approved',
-          source: 'Requisition',
-          note: `From ${r.id} by ${r.requestedBy}: ${r.reason}`,
-          createdAt: nowISO(),
+        await syncWithBackend();
+        return {
+          ok: true,
+          data: {
+            orderId: `ORD-${order.id}`,
+            invoiceId: inv.invoiceNumber || `INV-${inv.id}`,
+          },
         };
-        d.pos.push(po);
-        r.status = 'Approved';
-        r.poId = po.id;
-      }),
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to record walk-in sale',
+        };
+      }
+    },
 
-    updatePO: (id, p) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const po = d.pos.find((x) => x.id === id);
-        if (!po) throw new Error('PO not found');
-        if (po.status !== 'Draft' && po.status !== 'Approved')
-          throw new Error('Only Draft/Approved POs can be edited');
-        if (p.supplierId !== undefined) po.supplierId = p.supplierId;
-        if (p.lines) {
-          if (p.lines.some((l) => !Number.isInteger(l.qty) || l.qty < 1))
-            throw new Error('Quantities must be whole numbers ≥ 1');
-          po.lines = p.lines;
+    advanceOrder: async (id) => {
+      try {
+        const ord = dbRef.current.orders.find((o) => o.id === id);
+        if (!ord) throw new Error('Order not found');
+        const nextStatus =
+          ord.status === 'Pending'
+            ? 'Processing'
+            : ord.status === 'Processing'
+              ? 'Completed'
+              : null;
+        if (!nextStatus) throw new Error(`Order is ${ord.status}`);
+        const updated = await grmApi.orders.updateStatus(
+          ord.backendId,
+          nextStatus
+        );
+        await syncWithBackend();
+        return {
+          ok: true,
+          data:
+            dbRef.current.orders.find((o) => o.backendId === updated.id) ??
+            mapOrder(updated, dbRef.current.invoices),
+        };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to advance order' };
+      }
+    },
+
+    cancelOrder: async (id) => {
+      try {
+        const ord = dbRef.current.orders.find((o) => o.id === id);
+        if (!ord) throw new Error('Order not found');
+        const cancelled = await grmApi.orders.cancel(
+          ord.backendId,
+          'Cancelled via portal'
+        );
+        await syncWithBackend();
+        return {
+          ok: true,
+          data:
+            dbRef.current.orders.find((o) => o.backendId === cancelled.id) ??
+            mapOrder(cancelled, dbRef.current.invoices),
+        };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to cancel order' };
+      }
+    },
+
+    generateInvoice: async (orderId) => {
+      try {
+        const ord = dbRef.current.orders.find((o) => o.id === orderId);
+        if (!ord) throw new Error('Order not found');
+        const inv = await grmApi.invoices.generate(ord.backendId);
+        await syncWithBackend();
+        return { ok: true, data: mapInvoice(inv) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to generate invoice',
+        };
+      }
+    },
+
+    markPaid: async (id) => {
+      try {
+        const inv = dbRef.current.invoices.find((i) => i.id === id);
+        if (!inv) throw new Error('Invoice not found');
+        const updated = await grmApi.invoices.updatePaymentStatus(
+          inv.backendId,
+          { paymentStatus: 'Paid' }
+        );
+        await syncWithBackend();
+        return { ok: true, data: mapInvoice(updated) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to mark invoice as Paid',
+        };
+      }
+    },
+
+    voidInvoice: async (id, reason) => {
+      try {
+        const inv = dbRef.current.invoices.find((i) => i.id === id);
+        if (!inv) throw new Error('Invoice not found');
+        if (!reason.trim()) {
+          throw new Error('A reason is required to void an invoice');
         }
-      }),
+        const updated = await grmApi.invoices.void(inv.backendId, reason.trim());
+        await syncWithBackend();
+        return { ok: true, data: mapInvoice(updated) };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to void invoice' };
+      }
+    },
 
-    setPOStatus: (id, to) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const po = d.pos.find((x) => x.id === id);
+    logStock: async (p) => {
+      try {
+        const v = dbRef.current.variants.find((x) => x.id === p.variantId);
+        if (!v) throw new Error('Select a variant');
+        if (!p.reason.trim()) throw new Error('A reason is mandatory');
+        if (!Number.isInteger(p.qty) || p.qty < 1) {
+          throw new Error('Quantity must be a whole number ≥ 1');
+        }
+        if (p.type === 'Stock-In') {
+          await grmApi.inventory.stockIn(v.backendId, p.qty, p.reason.trim());
+        } else {
+          await grmApi.inventory.stockOut(v.backendId, p.qty, p.reason.trim());
+        }
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to log stock' };
+      }
+    },
+
+    adjustStock: async (p) => {
+      try {
+        const v = dbRef.current.variants.find((x) => x.id === p.variantId);
+        if (!v) throw new Error('Select a variant');
+        if (!p.reason.trim()) throw new Error('An audit reason is required');
+        if (!Number.isInteger(p.newCount) || p.newCount < 0) {
+          throw new Error('New count must be a whole number ≥ 0');
+        }
+        await grmApi.inventory.adjust(
+          v.backendId,
+          p.newCount,
+          p.reason.trim()
+        );
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to adjust stock' };
+      }
+    },
+
+    createRequisition: async (p) => {
+      try {
+        const v = dbRef.current.variants.find((x) => x.id === p.variantId);
+        if (!v) throw new Error('Select a variant');
+        if (!Number.isInteger(p.qty) || p.qty < 1) {
+          throw new Error('Quantity must be ≥ 1');
+        }
+        const req = await grmApi.requisitions.create({
+          variantId: v.backendId,
+          quantity: p.qty,
+          reason: p.reason.trim() || 'Low stock',
+        });
+        await syncWithBackend();
+        return { ok: true, data: mapRequisition(req) };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to submit requisition',
+        };
+      }
+    },
+
+    decideRequisition: async (id, approve, supplierId) => {
+      try {
+        const req = dbRef.current.requisitions.find((r) => r.id === id);
+        if (!req) throw new Error('Requisition not found');
+        if (approve) {
+          const sup = supplierId
+            ? dbRef.current.suppliers.find((s) => s.id === supplierId)
+            : undefined;
+          await grmApi.requisitions.approve(req.backendId, {
+            supplierId: sup?.backendId,
+            createPurchaseOrder: true,
+          });
+        } else {
+          await grmApi.requisitions.decline(req.backendId, {
+            reason: 'Declined by Admin',
+          });
+        }
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to process requisition',
+        };
+      }
+    },
+
+    updatePO: async (id, p) => {
+      try {
+        const po = dbRef.current.pos.find((x) => x.id === id);
+        if (!po) throw new Error('PO not found');
+        const sup =
+          p.supplierId !== undefined && p.supplierId !== null
+            ? dbRef.current.suppliers.find((s) => s.id === p.supplierId)
+            : undefined;
+
+        const items = p.lines
+          ? p.lines.map((l) => {
+              const v = dbRef.current.variants.find((x) => x.id === l.variantId);
+              if (!v) throw new Error('Variant not found');
+              if (!Number.isInteger(l.qty) || l.qty < 1) {
+                throw new Error('Quantities must be whole numbers ≥ 1');
+              }
+              return { variantId: v.backendId, quantityOrdered: l.qty };
+            })
+          : undefined;
+
+        await grmApi.purchaseOrders.update(po.backendId, {
+          ...(p.supplierId !== undefined
+            ? { supplierId: sup?.backendId ?? null, clearSupplier: p.supplierId === null }
+            : {}),
+          ...(items ? { items } : {}),
+        });
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to update PO' };
+      }
+    },
+
+    setPOStatus: async (id, to) => {
+      try {
+        const po = dbRef.current.pos.find((x) => x.id === id);
         if (!po) throw new Error('PO not found');
         if (to === 'Approved') {
-          if (po.status !== 'Draft')
-            throw new Error('Only Drafts can be approved');
-          if (!po.supplierId) throw new Error('Assign a supplier first');
+          await grmApi.purchaseOrders.approve(po.backendId);
+        } else {
+          await grmApi.purchaseOrders.send(po.backendId);
         }
-        if (to === 'Sent' && po.status !== 'Approved')
-          throw new Error('Only Approved POs can be sent');
-        po.status = to;
-      }),
-
-    discardPO: (id) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const po = d.pos.find((x) => x.id === id);
-        if (!po || po.status !== 'Draft')
-          throw new Error('Only Draft POs can be discarded');
-        d.pos = d.pos.filter((x) => x.id !== id);
-      }),
-
-    receivePO: (id, rec) => {
-      const targetPo = ref.current.pos.find((p) => p.id === id);
-      const deltas: {
-        backendVariantId?: number;
-        delta: number;
-        reason: string;
-      }[] = [];
-      if (targetPo) {
-        targetPo.lines.forEach((l, idx) => {
-          const add = rec[idx] ?? 0;
-          if (add > 0) {
-            deltas.push({
-              backendVariantId: ref.current.variants.find(
-                (v) => v.id === l.variantId
-              )?.backendId,
-              delta: add,
-              reason: `PO Receiving ${id}`,
-            });
-          }
-        });
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to update PO status' };
       }
+    },
 
-      const res = tx((d) => {
-        need(d, 'Staff', 'Admin');
-        const po = d.pos.find((x) => x.id === id);
+    discardPO: async (id) => {
+      try {
+        const po = dbRef.current.pos.find((x) => x.id === id);
         if (!po) throw new Error('PO not found');
-        if (po.status !== 'Approved' && po.status !== 'Sent')
-          throw new Error('Only Approved or Sent POs can be received');
-        let any = false;
+        await grmApi.purchaseOrders.remove(po.backendId);
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to discard PO' };
+      }
+    },
+
+    receivePO: async (id, rec) => {
+      try {
+        const po = dbRef.current.pos.find((x) => x.id === id);
+        if (!po) throw new Error('PO not found');
+        const items: { variantId: number; quantityReceived: number }[] = [];
         po.lines.forEach((l, idx) => {
           const add = rec[idx] ?? 0;
-          if (!add) return;
-          if (!Number.isInteger(add) || add < 0 || l.received + add > l.qty)
-            throw new Error(`Invalid received quantity for line ${idx + 1}`);
-          const v = d.variants.find((x) => x.id === l.variantId)!;
-          v.stock += add;
-          l.received += add;
-          any = true;
-          d.movements.push({
-            id: nid(d, 'MV'),
-            variantId: v.id,
-            type: 'Receiving',
-            qty: add,
-            reason: `Received against ${po.id}`,
-            ref: po.id,
-            by: who(d),
-            at: nowISO(),
-          });
+          if (add > 0) {
+            const v = dbRef.current.variants.find((x) => x.id === l.variantId);
+            if (v) {
+              items.push({ variantId: v.backendId, quantityReceived: add });
+            }
+          }
         });
-        if (!any) throw new Error('Enter at least one received quantity');
-        if (po.lines.every((l) => l.received >= l.qty)) po.status = 'Received';
-      });
-      if (res.ok && deltas.length > 0) {
-        pushStockDeltasToBackend(deltas);
+        if (!items.length) throw new Error('Enter at least one received quantity');
+        await grmApi.purchaseOrders.receive(po.backendId, { items });
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to receive PO' };
       }
-      return res;
     },
 
-    saveProduct: (p) => {
-      const res = tx((d) => {
-        need(d, 'Admin');
+    recalculateReorder: async () => {
+      try {
+        const res = await grmApi.reorder.recalculate({
+          lookbackDays: 7,
+          generateDraftPurchaseOrders: true,
+        });
+        await syncWithBackend();
+        return {
+          ok: true,
+          data: {
+            draftPurchaseOrdersCreated: res.draftPurchaseOrdersCreated,
+          },
+        };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to recalculate reorder suggestions',
+        };
+      }
+    },
+
+    saveProduct: async (p) => {
+      try {
         if (!p.name.trim()) throw new Error('Name is required');
+        let dto: ApiProductDto;
         if (p.id) {
-          const existing = d.products.find((x) => x.id === p.id)!;
-          Object.assign(existing, p);
-          return existing;
-        } else {
-          const created: Product = {
-            id: nid(d, 'P'),
+          const existing = dbRef.current.products.find((x) => x.id === p.id);
+          if (!existing) throw new Error('Product not found');
+          dto = await grmApi.products.update(existing.backendId, {
             name: p.name.trim(),
+            description: p.description ?? existing.description,
             category: p.category,
-            description: p.description ?? '',
-            active: p.active ?? true,
-          };
-          d.products.push(created);
-          return created;
-        }
-      });
-      if (res.ok) {
-        if (res.data.backendId) {
-          grmApi.products
-            .update(res.data.backendId, {
-              name: res.data.name,
-              description: res.data.description,
-              category: res.data.category,
-              isActive: res.data.active,
-            })
-            .catch(() => { });
+            imageUrl: p.imageUrl ?? existing.imageUrl,
+            isFeatured: p.isFeatured ?? existing.isFeatured,
+            isActive: p.active ?? existing.active,
+          });
         } else {
-          grmApi.products
-            .create({
-              name: res.data.name,
-              description: res.data.description,
-              category: res.data.category,
-              isActive: res.data.active,
-            })
-            .then(() => syncWithBackend())
-            .catch(() => { });
+          dto = await grmApi.products.create({
+            name: p.name.trim(),
+            description: p.description,
+            category: p.category,
+            imageUrl: p.imageUrl,
+            isFeatured: p.isFeatured,
+            isActive: p.active ?? true,
+          });
         }
+        await syncWithBackend();
+        const mapped =
+          dbRef.current.products.find((x) => x.backendId === dto.id) ?? {
+            id: `P-${dto.id}`,
+            backendId: dto.id,
+            name: dto.name,
+            category: mapCategory(dto.category),
+            description: dto.description ?? '',
+            active: dto.isActive,
+          };
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to save product' };
       }
-      return res;
     },
 
-    saveVariant: (p) => {
-      const res = tx((d) => {
-        need(d, 'Admin');
-        if (!p.name.trim() || !p.sku.trim())
+    saveVariant: async (p) => {
+      try {
+        if (!p.name.trim() || !p.sku.trim()) {
           throw new Error('Name and SKU are required');
+        }
         if (!(p.price >= 0)) throw new Error('Invalid price');
-        if (
-          d.variants.some(
-            (v) =>
-              v.sku.toLowerCase() === p.sku.trim().toLowerCase() &&
-              v.id !== p.id
-          )
-        )
-          throw new Error('SKU must be unique');
+
+        let dto;
         if (p.id) {
-          const existing = d.variants.find((x) => x.id === p.id)!;
-          Object.assign(existing, { ...p, sku: p.sku.trim() });
-          return existing;
+          const existing = dbRef.current.variants.find((x) => x.id === p.id);
+          if (!existing) throw new Error('Variant not found');
+          dto = await grmApi.products.updateVariant(existing.backendId, {
+            model: p.name.trim(),
+            sku: p.sku.trim(),
+            price: p.price,
+            stock: p.stock ?? existing.stock,
+            imageUrl: p.imageUrl ?? existing.imageUrl,
+          });
         } else {
-          const created: Variant = {
-            id: nid(d, 'V'),
-            productId: p.productId,
-            name: p.name.trim(),
+          const prod = dbRef.current.products.find((x) => x.id === p.productId);
+          if (!prod) throw new Error('Product not found');
+          dto = await grmApi.products.addVariant(prod.backendId, {
+            model: p.name.trim(),
             sku: p.sku.trim(),
             price: p.price,
             stock: p.stock ?? 0,
+            imageUrl: p.imageUrl,
+          });
+        }
+        await syncWithBackend();
+        const mapped =
+          dbRef.current.variants.find((x) => x.backendId === dto.id) ?? {
+            id: `V-${dto.id}`,
+            backendId: dto.id,
+            productId: `P-${dto.productId}`,
+            name: dto.model,
+            sku: dto.sku,
+            price: Number(dto.price),
+            stock: dto.stock,
             dailySales: [0, 0, 0, 0, 0, 0, 0],
-            active: p.active ?? true,
+            active: true,
           };
-          d.variants.push(created);
-          return created;
-        }
-      });
-      if (res.ok) {
-        const prodBackendId = ref.current.products.find(
-          (x) => x.id === res.data.productId
-        )?.backendId;
-        if (res.data.backendId) {
-          grmApi.products
-            .updateVariant(res.data.backendId, {
-              model: res.data.name,
-              sku: res.data.sku,
-              price: res.data.price,
-              stock: res.data.stock,
-            })
-            .catch(() => { });
-        } else if (prodBackendId) {
-          grmApi.products
-            .addVariant(prodBackendId, {
-              model: res.data.name,
-              sku: res.data.sku,
-              price: res.data.price,
-              stock: res.data.stock,
-            })
-            .then(() => syncWithBackend())
-            .catch(() => { });
-        }
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to save variant' };
       }
-      return res;
     },
 
-    saveBundle: (p) => {
-      const res = tx((d) => {
-        need(d, 'Admin');
-        if (!p.name.trim() || !p.sku.trim())
-          throw new Error('Name and SKU are required');
-        if (!p.components.length)
+    saveBundle: async (p) => {
+      try {
+        if (!p.name.trim()) throw new Error('Name is required');
+        if (!p.components.length) {
           throw new Error('A bundle needs at least one component');
-        if (p.components.some((c) => c.qty < 1))
+        }
+        if (p.components.some((c) => c.qty < 1)) {
           throw new Error('Component quantities must be ≥ 1');
+        }
+        const items = p.components.map((c) => {
+          const v = dbRef.current.variants.find((x) => x.id === c.variantId);
+          if (!v) throw new Error('Bundle component variant not found');
+          return { variantId: v.backendId, quantity: c.qty };
+        });
+
+        let dto: ApiBundleDto;
         if (p.id) {
-          const existing = d.bundles.find((x) => x.id === p.id)!;
-          Object.assign(existing, p);
-          return existing;
-        } else {
-          const created: Bundle = {
-            id: nid(d, 'B'),
+          const existing = dbRef.current.bundles.find((x) => x.id === p.id);
+          if (!existing) throw new Error('Bundle not found');
+          dto = await grmApi.bundles.update(existing.backendId, {
             name: p.name.trim(),
-            sku: p.sku.trim(),
-            description: p.description ?? '',
+            description: p.description ?? existing.description,
             price: p.price,
-            active: p.active ?? true,
+            imageUrl: p.imageUrl ?? existing.imageUrl,
+            items,
+          });
+        } else {
+          dto = await grmApi.bundles.create({
+            name: p.name.trim(),
+            description: p.description,
+            price: p.price,
+            imageUrl: p.imageUrl,
+            items,
+          });
+        }
+        await syncWithBackend();
+        const mapped =
+          dbRef.current.bundles.find((x) => x.backendId === dto.id) ?? {
+            id: `B-${dto.id}`,
+            backendId: dto.id,
+            name: dto.name,
+            sku: `BND-${dto.id}`,
+            description: dto.description ?? '',
+            price: Number(dto.price),
+            active: true,
             components: p.components,
           };
-          d.bundles.push(created);
-          return created;
-        }
-      });
-      if (res.ok) {
-        const items = res.data.components
-          .map((c) => ({
-            variantId:
-              ref.current.variants.find((v) => v.id === c.variantId)
-                ?.backendId ?? 0,
-            quantity: c.qty,
-          }))
-          .filter((i) => i.variantId > 0);
-        if (items.length > 0) {
-          if (res.data.backendId) {
-            grmApi.bundles
-              .update(res.data.backendId, {
-                name: res.data.name,
-                description: res.data.description,
-                price: res.data.price,
-                items,
-              })
-              .catch(() => { });
-          } else {
-            grmApi.bundles
-              .create({
-                name: res.data.name,
-                description: res.data.description,
-                price: res.data.price,
-                items,
-              })
-              .then(() => syncWithBackend())
-              .catch(() => { });
-          }
-        }
+        return { ok: true, data: mapped };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to save bundle' };
       }
-      return res;
     },
 
-    setMaxDiscount: (pct) =>
-      tx((d) => {
-        need(d, 'Admin');
+    deleteBundle: async (id) => {
+      try {
+        const b = dbRef.current.bundles.find((x) => x.id === id);
+        if (!b) throw new Error('Bundle not found');
+        await grmApi.bundles.remove(b.backendId);
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to delete bundle' };
+      }
+    },
+
+    setMaxDiscount: async (pct) => {
+      try {
         if (!(pct >= 0 && pct <= 100)) throw new Error('Enter 0–100');
-        d.settings.maxStaffDiscountPercent = pct;
-      }),
+        await grmApi.settings.update({ maxStaffDiscountPercent: pct });
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to update discount limit',
+        };
+      }
+    },
 
-    saveSupplier: (p) =>
-      tx((d) => {
-        need(d, 'Admin');
+    saveSupplier: async (p) => {
+      try {
         if (!p.name.trim()) throw new Error('Supplier name is required');
-        if (p.id)
-          Object.assign(d.suppliers.find((x) => x.id === p.id)!, p);
-        else
-          d.suppliers.push({
-            id: nid(d, 'S'),
-            name: p.name.trim(),
-            contact: p.contact ?? '',
-            phone: p.phone ?? '',
-          });
-      }),
-
-    saveUser: (p) =>
-      tx((d) => {
-        need(d, 'Admin');
-        if (!p.name.trim() || !p.email.includes('@'))
-          throw new Error('Name and valid email are required');
-        if (
-          d.users.some(
-            (u) =>
-              u.email.toLowerCase() === p.email.trim().toLowerCase() &&
-              u.id !== p.id
-          )
-        )
-          throw new Error('Email already used');
+        let dto: ApiSupplierDto;
         if (p.id) {
-          const u = d.users.find((x) => x.id === p.id)!;
-          u.name = p.name;
-          u.email = p.email;
-          u.role = p.role;
-          if (p.password) u.password = p.password;
-        } else {
-          if (!p.password || p.password.length < 6)
-            throw new Error('Password must be 6+ characters');
-          d.users.push({
-            id: nid(d, 'U'),
+          const existing = dbRef.current.suppliers.find((s) => s.id === p.id);
+          if (!existing) throw new Error('Supplier not found');
+          dto = await grmApi.suppliers.update(existing.backendId, {
             name: p.name.trim(),
-            email: p.email.trim(),
-            password: p.password,
-            phone: p.phone ?? '',
-            address: '',
-            role: p.role,
-            active: true,
+            contactPerson: p.contact,
+            phone: p.phone,
+          });
+        } else {
+          dto = await grmApi.suppliers.create({
+            name: p.name.trim(),
+            contactPerson: p.contact,
+            phone: p.phone,
           });
         }
-      }),
+        await syncWithBackend();
+        return { ok: true, data: mapSupplier(dto) };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to save supplier' };
+      }
+    },
 
-    toggleUser: (id) =>
-      tx((d) => {
-        need(d, 'Admin');
-        const u = d.users.find((x) => x.id === id);
+    saveUser: async (p) => {
+      try {
+        if (!p.name.trim() || !p.email.includes('@')) {
+          throw new Error('Name and valid email are required');
+        }
+        if (!p.password || p.password.length < 6) {
+          throw new Error('Password must be 6+ characters');
+        }
+        const created = await grmApi.users.create({
+          username: buildUsernameFromEmail(p.email.trim()),
+          email: p.email.trim(),
+          password: p.password,
+          role: p.role,
+          fullName: p.name.trim(),
+          phoneNumber: p.phone,
+        });
+        await syncWithBackend();
+        return { ok: true, data: mapUser(created) };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to create account' };
+      }
+    },
+
+    toggleUser: async (id) => {
+      try {
+        const u = dbRef.current.users.find((x) => x.id === id);
         if (!u) throw new Error('User not found');
-        if (u.id === d.session.userId)
-          throw new Error('You cannot deactivate your own account');
-        u.active = !u.active;
-      }),
+        await grmApi.users.setStatus(u.backendId, !u.active);
+        await syncWithBackend();
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return {
+          ok: false,
+          error: e?.message ?? 'Failed to update user status',
+        };
+      }
+    },
 
-    submitInquiry: (p) =>
-      tx((d) => {
-        if (!p.name.trim() || !p.email.includes('@') || !p.message.trim())
+    submitInquiry: async (p) => {
+      try {
+        if (!p.name.trim() || !p.email.includes('@') || !p.message.trim()) {
           throw new Error('Please complete all fields');
-        d.inquiries.push({ id: nid(d, 'IN'), ...p, at: nowISO() });
-      }),
-
-    resetDemo: () => {
-      commit(seed());
-      syncWithBackend();
+        }
+        await grmApi.contact.submit({
+          name: p.name.trim(),
+          email: p.email.trim(),
+          message: p.message.trim(),
+        });
+        return { ok: true, data: undefined };
+      } catch (e: any) {
+        return { ok: false, error: e?.message ?? 'Failed to send inquiry' };
+      }
     },
   };
 
-  const value = useMemo<Ctx>(() => {
-    const user = cur(db);
-    return {
+  const activeCart = role === 'Guest' ? guestCart : role === 'Customer' ? customerCart : [];
+
+  const value = useMemo<Ctx>(
+    () => ({
       db,
-      user,
-      role: roleOf(db),
-      cart: db.carts[db.session.userId ?? 'guest'] ?? [],
+      user: currentUser,
+      role,
+      cart: activeCart,
       listings: buildListings(db),
       notice,
       apiOnline,
@@ -1943,9 +2056,10 @@ export function SystemProvider({ children }: { children: ReactNode }) {
       syncWithBackend,
       flash,
       ...api,
-    };
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, notice, apiOnline]);
+    [db, currentUser, role, activeCart, notice, apiOnline]
+  );
 
   return <SystemCtx.Provider value={value}>{children}</SystemCtx.Provider>;
 }
