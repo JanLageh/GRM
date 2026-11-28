@@ -17,7 +17,8 @@ export default function Cart() {
   const lines = cart.map((c) => ({ c, l: listings.find((x) => x.kind === c.kind && x.id === c.refId) }));
   const t = totals(lines.map(({ c, l }) => ({ unitPrice: l?.price ?? 0, qty: c.qty })), 0);
 
-  if (role === 'Staff' || role === 'Admin') return <Screen max={600}><Card><H1>Cart</H1><Muted>Staff and Admin accounts record sales through the Walk-In POS and Quotation Builder.</Muted><Btn title="Open POS" onPress={() => router.push('/staff/pos')} /></Card></Screen>;
+  if (role === 'Staff') return <Screen max={600}><Card><H1>Cart</H1><Muted>Staff accounts record sales through the Walk-In POS and Quotation Builder.</Muted><Btn title="Open POS" onPress={() => router.push('/staff/pos')} /></Card></Screen>;
+  if (role === 'Admin') return <Screen max={600}><Card><H1>Cart</H1><Muted>Admin accounts do not record walk-in or cart sales.</Muted><Btn title="Back to Dashboard" onPress={() => router.push('/admin')} /></Card></Screen>;
 
   const guard = (fn: () => void) => () => (role === 'Guest' ? setAuth(true) : fn());
   const doQuote = async () => { const r = await requestQuotation(note); if (r.ok) { flash('Quotation request submitted to Staff'); router.push('/customer/quotations'); } else flash(r.error, 'err'); };

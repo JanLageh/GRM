@@ -3,6 +3,7 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSystem, CartItem, Payment, totals, peso, buildListings } from '../../context/SystemContext';
 import LineBuilder from '../../components/LineBuilder';
+import Guard from '../../components/Guard';
 import { Screen, Card, H1, Muted, T, Btn, Row, Field, Chips, useWide } from '../../components/ui';
 
 export default function POS() {
@@ -23,6 +24,7 @@ export default function POS() {
     if (r.ok) { flash(`Walk-in sale recorded: ${r.data.orderId} · ${r.data.invoiceId}`); setItems([]); setName(''); setDisc('0'); router.push(`/invoice/${r.data.invoiceId}` as any); } else flash(r.error, 'err');
   };
   return (
+    <Guard roles={['Staff']}>
     <Screen>
       <H1>Walk-In Sales POS</H1>
       <View style={{ flexDirection: wide ? 'row' : 'column', gap: 16, alignItems: 'flex-start' }}>
@@ -39,6 +41,7 @@ export default function POS() {
         </Card>
       </View>
     </Screen>
+    </Guard>
   );
 }
 

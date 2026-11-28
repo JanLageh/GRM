@@ -9,7 +9,7 @@ const NAV: Record<Role, [string, string][]> = {
   Guest: [['Home', '/'], ['Catalog', '/catalog'], ['Cart', '/cart']],
   Customer: [['Home', '/'], ['Catalog', '/catalog'], ['Cart', '/cart'], ['Quotations', '/customer/quotations'], ['Orders & Invoices', '/customer/orders'], ['Profile', '/customer/profile']],
   Staff: [['Dashboard', '/staff'], ['Walk-In POS', '/staff/pos'], ['Quotations', '/staff/quotations'], ['Orders & Invoices', '/staff/orders'], ['Stock Log', '/staff/stock'], ['Purchasing', '/staff/purchasing'], ['Catalog', '/catalog']],
-  Admin: [['Dashboard', '/admin'], ['Products', '/admin/catalog'], ['Pricing', '/admin/pricing'], ['Purchasing', '/admin/purchasing'], ['Inventory & Invoices', '/admin/inventory'], ['People', '/admin/people'], ['Reports', '/admin/reports'], ['POS', '/staff/pos'], ['Quotations', '/staff/quotations'], ['Orders', '/staff/orders']],
+  Admin: [['Dashboard', '/admin'], ['Products', '/admin/catalog'], ['Pricing', '/admin/pricing'], ['Purchasing', '/admin/purchasing'], ['Inventory & Invoices', '/admin/inventory'], ['People', '/admin/people'], ['Reports', '/admin/reports'], ['Quotations', '/staff/quotations'], ['Orders', '/staff/orders']],
 };
 const HOME: Record<Role, string> = { Guest: '/', Customer: '/', Staff: '/staff', Admin: '/admin' };
 // const ROLES: { r: Role; label: string }[] = [{ r: 'Guest', label: 'Guest' }, { r: 'Customer', label: 'Customer' }, { r: 'Staff', label: 'Staff' }, { r: 'Admin', label: 'Admin/Owner' }];
