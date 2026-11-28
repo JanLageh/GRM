@@ -8,16 +8,19 @@ export default function Register() {
   const router = useRouter();
   const [f, setF] = useState({ name: '', email: '', password: '', phone: '' });
   const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const submit = async () => {
-    if (busy) return;
     setErr('');
-    setBusy(true);
-    const r = await register(f);
-    setBusy(false);
-    if (!r.ok) { setErr(r.error); return; }
-    flash('Account created — welcome!');
-    router.replace('/cart');
+    setSubmitting(true);
+    try {
+      const r = await register(f);
+      if (!r.ok) { setErr(r.error); return; }
+      flash('Account created — welcome!');
+      router.replace('/cart');
+    } finally {
+      setSubmitting(false);
+    }
   };
   return (
     <Screen max={460}>
@@ -28,7 +31,7 @@ export default function Register() {
         <Field label="Phone" value={f.phone} onChangeText={(v) => setF({ ...f, phone: v })} />
         <Field label="Password (6+ chars)" value={f.password} onChangeText={(v) => setF({ ...f, password: v })} secureTextEntry />
         {err ? <T style={{ color: '#DC2626' }}>{err}</T> : null}
-        <Btn title="Create account" onPress={submit} />
+        <Btn title={submitting ? 'Creating account...' : 'Create account'} onPress={submit} disabled={submitting} />
         <Btn title="I already have an account" kind="ghost" onPress={() => router.push('/login')} />
       </Card>
     </Screen>

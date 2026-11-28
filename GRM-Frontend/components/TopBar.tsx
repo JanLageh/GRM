@@ -6,7 +6,7 @@ import { useSystem, Role } from '../context/SystemContext';
 import { C, noPrint, useWide } from './ui';
 
 const NAV: Record<Role, [string, string][]> = {
-  Guest: [['Home', '/'], ['Catalog', '/catalog'], ['About & Contact', '/about'], ['Cart', '/cart']],
+  Guest: [['Home', '/'], ['Catalog', '/catalog'], ['Cart', '/cart']],
   Customer: [['Home', '/'], ['Catalog', '/catalog'], ['Cart', '/cart'], ['Quotations', '/customer/quotations'], ['Orders & Invoices', '/customer/orders'], ['Profile', '/customer/profile']],
   Staff: [['Dashboard', '/staff'], ['Walk-In POS', '/staff/pos'], ['Quotations', '/staff/quotations'], ['Orders & Invoices', '/staff/orders'], ['Stock Log', '/staff/stock'], ['Purchasing', '/staff/purchasing'], ['Catalog', '/catalog']],
   Admin: [['Dashboard', '/admin'], ['Products', '/admin/catalog'], ['Pricing', '/admin/pricing'], ['Purchasing', '/admin/purchasing'], ['Inventory & Invoices', '/admin/inventory'], ['People', '/admin/people'], ['Reports', '/admin/reports'], ['POS', '/staff/pos'], ['Quotations', '/staff/quotations'], ['Orders', '/staff/orders']],

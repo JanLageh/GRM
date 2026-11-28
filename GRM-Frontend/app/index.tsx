@@ -27,7 +27,7 @@ export default function Home() {
         <Muted style={{ fontSize: 15, maxWidth: 640 }}>
           Garry's Smartlock and Solar sells smart locks, solar panels, batteries and ready-made solar bundles. Stock counts below are live — online orders and in-store sales share one inventory.
         </Muted>
-        <Row><Btn title="Browse Catalog" onPress={() => router.push('/catalog')} /><Btn title="About & Contact" kind="ghost" onPress={() => router.push('/about')} /></Row>
+        <Row><Btn title="Browse Catalog" onPress={() => router.push('/catalog')} /></Row>
       </View>
       <Section title="Composite Solar Bundles" cat="Solar Bundles" />
       <Section title="Featured Smart Locks" cat="Smart Locks" />
