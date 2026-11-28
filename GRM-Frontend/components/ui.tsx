@@ -48,7 +48,7 @@ const tones: Record<string, [string, string, string]> = {
   neutral: ['#F3F4F6', '#E5E7EB', '#374151'], dark: ['#111111', '#111111', '#FFFFFF'],
 };
 export function Badge({ text, tone = 'neutral' }: { text: string; tone?: keyof typeof tones }) {
-  const [bg, bd, fg] = tones[tone];
+  const [bg, bd, fg] = tones[tone] ?? tones.neutral;
   return <View style={{ alignSelf: 'flex-start', backgroundColor: bg, borderColor: bd, borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 }}><Text style={{ color: fg, fontSize: 11, fontWeight: '700' }}>{text}</Text></View>;
 }
 export const statusTone = (s: string): keyof typeof tones =>
