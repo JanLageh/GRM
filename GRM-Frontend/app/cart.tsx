@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSystem, peso, totals, Payment } from '../context/SystemContext';
@@ -11,14 +11,17 @@ export default function Cart() {
   const [note, setNote] = useState('');
   const [pay, setPay] = useState<Payment>('Cash on Delivery');
   const [addr, setAddr] = useState(user?.address ?? '');
+  useEffect(() => {
+    if (user?.address && !addr) setAddr(user.address);
+  }, [user?.address]);
   const lines = cart.map((c) => ({ c, l: listings.find((x) => x.kind === c.kind && x.id === c.refId) }));
   const t = totals(lines.map(({ c, l }) => ({ unitPrice: l?.price ?? 0, qty: c.qty })), 0);
 
   if (role === 'Staff' || role === 'Admin') return <Screen max={600}><Card><H1>Cart</H1><Muted>Staff and Admin accounts record sales through the Walk-In POS and Quotation Builder.</Muted><Btn title="Open POS" onPress={() => router.push('/staff/pos')} /></Card></Screen>;
 
   const guard = (fn: () => void) => () => (role === 'Guest' ? setAuth(true) : fn());
-  const doQuote = () => { const r = requestQuotation(note); if (r.ok) { flash('Quotation request submitted to Staff'); router.push('/customer/quotations'); } else flash(r.error, 'err'); };
-  const doCheckout = () => { const r = checkout(pay, addr); if (r.ok) { flash(`Order ${r.data.id} placed (Pending)`); router.push('/customer/orders'); } else flash(r.error, 'err'); };
+  const doQuote = async () => { const r = await requestQuotation(note); if (r.ok) { flash('Quotation request submitted to Staff'); router.push('/customer/quotations'); } else flash(r.error, 'err'); };
+  const doCheckout = async () => { const r = await checkout(pay, addr); if (r.ok) { flash(`Order ${r.data.id} placed (Pending)`); router.push('/customer/orders'); } else flash(r.error, 'err'); };
 
   return (
     <Screen max={900}>

@@ -18,8 +18,8 @@ export default function POS() {
   const cap = db.settings.maxStaffDiscountPercent;
   const over = role === 'Staff' && pct > cap;
   const t = totals(items.map((i) => ({ unitPrice: listings.find((l) => l.kind === i.kind && l.id === i.refId)?.price ?? 0, qty: i.qty })), pct);
-  const done = () => {
-    const r = walkInSale({ customerName: name, items, discountPercent: pct, payment: pay, paid: paid === 'Paid' });
+  const done = async () => {
+    const r = await walkInSale({ customerName: name, items, discountPercent: pct, payment: pay, paid: paid === 'Paid' });
     if (r.ok) { flash(`Walk-in sale recorded: ${r.data.orderId} · ${r.data.invoiceId}`); setItems([]); setName(''); setDisc('0'); router.push(`/invoice/${r.data.invoiceId}` as any); } else flash(r.error, 'err');
   };
   return (

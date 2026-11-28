@@ -6,9 +6,12 @@ import ProductCard from '../components/ProductCard';
 import { Screen, Btn, H1, H2, Muted, Row, C, Badge } from '../components/ui';
 
 export default function Home() {
-  const { listings, addToCart, flash, db } = useSystem();
+  const { listings, addToCart, flash } = useSystem();
   const router = useRouter();
-  const add = (kind: 'variant' | 'bundle', id: string) => { addToCart(kind, id, 1); flash('Added to cart'); };
+  const add = async (kind: 'variant' | 'bundle', id: string) => {
+    const r = await addToCart(kind, id, 1);
+    flash(r.ok ? 'Added to cart' : r.error, r.ok ? 'ok' : 'err');
+  };
   const group = (cat: string) => listings.filter((l) => l.category === cat);
   const Section = ({ title, cat }: { title: string; cat: string }) => (
     <View style={{ gap: 10 }}>
@@ -30,7 +33,7 @@ export default function Home() {
       <Section title="Featured Smart Locks" cat="Smart Locks" />
       <Section title="Solar Panels (Small · Medium · Large)" cat="Solar Panels" />
       <Section title="Solar Batteries" cat="Batteries" />
-      <Muted>Demo logins — admin@garry.ph / admin123 · staff@garry.ph / staff123 · customer@garry.ph / customer123 ({db.users.length} accounts)</Muted>
+      <Muted>Demo logins — admin@grm.local / Admin123! · staff@grm.local / Staff123! · customer@grm.local / Customer123!</Muted>
     </Screen>
   );
 }

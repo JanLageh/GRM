@@ -5,9 +5,12 @@ import { useSystem, peso, fmtDT } from '../../context/SystemContext';
 import { Screen, Card, H1, Muted, Btn, Row, StatusBadge, Table } from '../../components/ui';
 
 export default function StaffOrders() {
-  const { db, advanceOrder, cancelOrder, generateInvoice, markPaid, flash } = useSystem();
+  const { db, role, advanceOrder, cancelOrder, generateInvoice, markPaid, flash } = useSystem();
   const router = useRouter();
-  const act = (r: any, msg: string) => flash(r.ok ? msg : r.error, r.ok ? 'ok' : 'err');
+  const act = async (p: Promise<any>, msg: string) => {
+    const r = await p;
+    flash(r.ok ? msg : r.error, r.ok ? 'ok' : 'err');
+  };
   return (
     <Screen>
       <H1>Orders & Invoice Processing</H1>
@@ -22,7 +25,7 @@ export default function StaffOrders() {
                 {(!inv || inv.status === 'Voided') && o.status !== 'Cancelled' && <Btn small kind="ghost" title="Generate Invoice" onPress={() => act(generateInvoice(o.id), `Invoice generated for ${o.id}`)} testID={`gen-${o.id}`} />}
                 {inv?.status === 'Unpaid' && <Btn small kind="ok" title="Mark Paid" onPress={() => act(markPaid(inv.id), `${inv.id} marked Paid`)} testID={`paid-${inv.id}`} />}
                 {inv && <Btn small kind="ghost" title="View" onPress={() => router.push(`/invoice/${inv.id}` as any)} />}
-                {o.status !== 'Completed' && o.status !== 'Cancelled' && <Btn small kind="danger" title="Cancel" onPress={() => act(cancelOrder(o.id), `${o.id} cancelled`)} />}
+                {role === 'Admin' && o.status !== 'Completed' && o.status !== 'Cancelled' && <Btn small kind="danger" title="Cancel" onPress={() => act(cancelOrder(o.id), `${o.id} cancelled`)} />}
               </Row>];
           })} />
       </Card>

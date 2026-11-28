@@ -19,9 +19,9 @@ export default function PrintPO() {
           <View><Text style={{ fontSize: 22, fontWeight: '800' }}>PURCHASE ORDER</Text><Muted>Garry's Smartlock and Solar{'\n'}Mahayahay, Bankal, Lapu-Lapu City</Muted></View>
           <View style={{ alignItems: 'flex-end', gap: 4 }}><T bold style={{ fontSize: 18 }}>{po.id}</T><StatusBadge s={po.status} /><Muted>{fmtDT(po.createdAt)}</Muted></View>
         </Row>
-        <View><Muted>SUPPLIER</Muted><T bold>{sup?.name ?? 'Unassigned'}</T><Muted>{sup?.contact} · {sup?.phone}</Muted></View>
+        <View><Muted>SUPPLIER</Muted><T bold>{sup?.name ?? po.supplierName ?? 'Unassigned'}</T><Muted>{sup?.contact} · {sup?.phone}</Muted></View>
         <Table head={['SKU', 'Item', 'Qty ordered', 'Received']} widths={[1, 2.6, 1, 1]}
-          rows={po.lines.map((l) => { const v = db.variants.find((x) => x.id === l.variantId)!; return [v.sku, variantLabel(db, v), String(l.qty), String(l.received)]; })} />
+          rows={po.lines.map((l) => { const v = db.variants.find((x) => x.id === l.variantId); return [v?.sku ?? l.sku ?? '?', v ? variantLabel(db, v) : `${l.productName ?? '?'} — ${l.model ?? ''}`, String(l.qty), String(l.received)]; })} />
         <Muted>{po.note}</Muted>
       </Card>
     </Screen>

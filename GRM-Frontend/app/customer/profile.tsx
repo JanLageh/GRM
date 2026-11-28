@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSystem } from '../../context/SystemContext';
 import { Screen, Card, H1, Field, Btn, Row } from '../../components/ui';
@@ -7,8 +7,13 @@ export default function Profile() {
   const { user, updateProfile, changePassword, flash } = useSystem();
   const [f, setF] = useState({ name: user?.name ?? '', phone: user?.phone ?? '', address: user?.address ?? '' });
   const [p, setP] = useState({ cur: '', next: '' });
-  const save = () => { const r = updateProfile(f); flash(r.ok ? 'Profile updated' : r.error, r.ok ? 'ok' : 'err'); };
-  const pw = () => { const r = changePassword(p.cur, p.next); if (r.ok) setP({ cur: '', next: '' }); flash(r.ok ? 'Password changed' : r.error, r.ok ? 'ok' : 'err'); };
+  useEffect(() => {
+    if (user) {
+      setF({ name: user.name ?? '', phone: user.phone ?? '', address: user.address ?? '' });
+    }
+  }, [user?.id, user?.name, user?.phone, user?.address]);
+  const save = async () => { const r = await updateProfile(f); flash(r.ok ? 'Profile updated' : r.error, r.ok ? 'ok' : 'err'); };
+  const pw = async () => { const r = await changePassword(p.cur, p.next); if (r.ok) setP({ cur: '', next: '' }); flash(r.ok ? 'Password changed' : r.error, r.ok ? 'ok' : 'err'); };
   return (
     <Screen max={700}>
       <H1>Profile</H1>

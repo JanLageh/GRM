@@ -17,7 +17,7 @@ export default function Catalog() {
       <Field label="Search by model or SKU" value={q} onChangeText={setQ} placeholder="Search…" testID="search" />
       <Muted>{shown.length} item(s)</Muted>
       <Row style={{ alignItems: 'stretch' }}>
-        {shown.map((l) => <ProductCard key={l.kind + l.id} l={l} onAdd={() => { addToCart(l.kind, l.id, 1); flash(`${l.sku} added to cart`); }} />)}
+        {shown.map((l) => <ProductCard key={l.kind + l.id} l={l} onAdd={async () => { const r = await addToCart(l.kind, l.id, 1); flash(r.ok ? `${l.sku} added to cart` : r.error, r.ok ? 'ok' : 'err'); }} />)}
       </Row>
     </Screen>
   );

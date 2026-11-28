@@ -1,20 +1,16 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View } from 'react-native';
-import { useSystem, peso, totals, fmtDate, isExpired, Payment } from '../../context/SystemContext';
-import { Screen, Card, H1, Muted, T, Btn, Row, Chips, StatusBadge, Table } from '../../components/ui';
-import { useRouter } from 'expo-router';
+import { useSystem, peso, totals, fmtDate, isExpired } from '../../context/SystemContext';
+import { Screen, Card, H1, Muted, T, Btn, Row, StatusBadge, Table } from '../../components/ui';
 
 export default function MyQuotations() {
   const { db, user, acceptQuotation, declineQuotation, flash } = useSystem();
-  const router = useRouter();
-  const [pay, setPay] = useState<Payment>('Cash on Delivery');
   const mine = db.quotations.filter((q) => q.customerId === user?.id).slice().reverse();
-  const accept = (id: string) => { const r = acceptQuotation(id, pay); if (r.ok) { flash(`Quotation converted to Sales Order ${r.data.id}`); router.push('/customer/orders'); } else flash(r.error, 'err'); };
-  const decline = (id: string) => { const r = declineQuotation(id); flash(r.ok ? 'Quotation declined' : r.error, r.ok ? 'ok' : 'err'); };
+  const accept = async (id: string) => { const r = await acceptQuotation(id); flash(r.ok ? 'Quotation accepted — Staff will convert it to an order' : r.error, r.ok ? 'ok' : 'err'); };
+  const decline = async (id: string) => { const r = await declineQuotation(id); flash(r.ok ? 'Quotation declined' : r.error, r.ok ? 'ok' : 'err'); };
   return (
     <Screen max={950}>
       <H1>My Quotations</H1>
-      <Chips label="Payment method when accepting" options={['Cash on Delivery', 'Manual Bank Transfer'] as const} value={pay as any} onChange={(v) => setPay(v)} />
       {mine.length === 0 && <Card><Muted>No quotations yet. Add items to your cart and choose “Request Quotation”.</Muted></Card>}
       {mine.map((q) => {
         const exp = isExpired(q);
